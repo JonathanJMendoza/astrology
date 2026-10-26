@@ -37,10 +37,14 @@ svg { flex-shrink: 0; }
 .app-shell { position: relative; isolation: isolate; overflow: hidden; min-height: 100dvh; }
 .cosmos { position: absolute; inset: 70px 0 0; z-index: -1; pointer-events: none; overflow: hidden; }
 .cosmos::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 30%, #0c1110 90%); }
+.starfield { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.bonus-starfield { position: fixed; z-index: -2; }
 .star { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #dfc996; }
 .star.large { border-radius: 0; width: 5px; height: 5px; transform: rotate(45deg); }
 .celestial-wheel { stroke: currentColor; stroke-width: 1; }
 .background-wheel { position: absolute; width: 780px; height: 780px; left: calc(50% - 390px); top: -247px; color: #a68e5b; opacity: .065; }
+.background-wheel { animation: wheel-drift 160s linear infinite; }
+@keyframes wheel-drift { to { transform: rotate(360deg); } }
 .site-header { height: 74px; padding: 0 5%; border-bottom: 1px solid #222a24; display: flex; align-items: center; justify-content: space-between; gap: 30px; background: #0b100ff0; }
 .brand { display: inline-flex; gap: 11px; align-items: center; font-size: 21px; font-weight: 500; }
 .brand > svg { color: var(--gold); }
@@ -249,7 +253,7 @@ main { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
 .wager-times { color: #7f8b75; font-size: 14px; }
 .wager-lock { margin-left: auto; color: #9eae8e; font-size: 8px; }
 .wager-settings + .control-deck { margin-top: 0; }
-.bonus-odds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid #3c4532; margin: 16px 0; padding: 14px 0; gap: 10px; }
+.bonus-odds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid #3c4532; margin: 16px 0; padding: 14px 0; gap: 10px; }
 .bonus-odds > div { display: flex; flex-direction: column; gap: 5px; }
 .bonus-odds strong { color: #e5c58b; font: 500 21px var(--serif); }
 .bonus-odds span, .bonus-odds small { font-size: 9px; color: #a6b197; }
@@ -263,6 +267,9 @@ main { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
 .celestial-bonus { position: fixed; inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; color: #e6e6dd; background: #0a1317; overflow-y: auto; overscroll-behavior: contain; isolation: isolate; }
 .celestial-bonus::backdrop { background: #080d11; }
 .celestial-sky { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: -2; }
+.celestial-sky .solar-body { animation: planet-drift 12s ease-in-out infinite alternate; }
+.celestial-sky .saturn-body { animation: planet-drift 17s ease-in-out infinite alternate-reverse; }
+@keyframes planet-drift { from { translate: 0 -10px; } to { translate: 8px 15px; } }
 .bonus-wheel { position: fixed; width: min(960px, 120%); height: auto; aspect-ratio: 1; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #c3b577; opacity: .08; z-index: -1; pointer-events: none; animation: celestial-turn 180s linear infinite; }
 @keyframes celestial-turn { to { transform: translate(-50%, -50%) rotate(360deg); } }
 .bonus-sound { position: fixed; top: 20px; right: 25px; z-index: 4; width: 40px; height: 40px; color: #d1d1b2; background: #111d1edb; }
@@ -273,6 +280,10 @@ main { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
 .celestial-heading h2 { margin: 10px 0 8px; font: 500 48px/1.1 var(--serif); color: #e6d6ae; }
 .celestial-heading p { font-size: 12px; margin: 0; color: #9caeaf; }
 .jackpot-tiers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; padding: 15px 0 18px; border-block: 1px solid #73827933; margin-bottom: 22px; }
+.jackpot-tiers.match-tiers { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.match-counter { display: flex; justify-content: center; gap: 7px; margin-top: 6px; }
+.match-counter svg { color: #587071; }
+.match-counter .matched { color: var(--tier-color); fill: var(--tier-color); filter: drop-shadow(0 0 4px var(--tier-color)); }
 .jackpot-tiers > div { text-align: center; display: flex; flex-direction: column; gap: 4px; color: var(--tier-color); min-width: 0; }
 .jackpot-tiers > div + div { border-left: 1px solid #73827933; }
 .jackpot-tiers span { font-size: 10px; text-transform: uppercase; }
@@ -285,7 +296,27 @@ main { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
 .constellation-card:disabled { opacity: .42; cursor: default; }
 .constellation-card.chosen { opacity: 1; background: #263a37; border: 2px solid var(--prize-color); box-shadow: 0 0 32px color-mix(in srgb, var(--prize-color) 13%, transparent); }
 .constellation-card strong { font-size: 12px; font-weight: 500; color: #d0d6c4; margin-top: 3px; }
-.constellation-card .zodiac-symbol > svg { width: 62px; height: 62px; }
+.constellation-chart { color: var(--constellation-color, #b5cbd0); }
+.constellation-chart polyline { stroke: currentColor; stroke-width: .6; opacity: .55; }
+.chart-halo { fill: currentColor; opacity: .12; }
+.chart-star { fill: #f0e7c9; }
+.constellation-card .constellation-chart { width: 82px; height: 82px; }
+.star-pick-map { width: min(100%, 570px); height: 430px; margin: 0 auto; position: relative; }
+.star-pick-map > .constellation-chart { width: 100%; height: 100%; position: absolute; inset: 0; overflow: visible; }
+.star-pick-map .constellation-chart polyline { stroke-width: .35; opacity: .7; }
+.star-pick-map .chart-star, .star-pick-map .chart-halo { opacity: 0; }
+.pick-star { position: absolute; transform: translate(-50%, -50%); width: 50px; height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 3px; border-radius: 5px; color: var(--star-prize-color); background: #0a141bbf; }
+.pick-star > svg { filter: drop-shadow(0 0 6px currentColor); animation: pick-star-pulse 2.5s ease-in-out infinite alternate; }
+.pick-star span { font-size: 9px; font-weight: 600; color: #c9d6c7; }
+.pick-star:hover:not(:disabled) { color: #fff2c0; background: #293d40; box-shadow: 0 0 18px #d9be7b26; }
+.pick-star:disabled { opacity: 1; cursor: default; }
+.pick-star.uncovered { background: #192b30; border: 1px solid color-mix(in srgb, var(--star-prize-color), transparent 60%); }
+.pick-star.uncovered > svg { animation: none; }
+.pick-star.uncovered span { color: var(--star-prize-color); }
+.star-pick-map.complete .pick-star:not(.winning-star) { opacity: .4; }
+.pick-star.winning-star { box-shadow: 0 0 22px color-mix(in srgb, var(--star-prize-color), transparent 65%); border-color: var(--star-prize-color); }
+.bonus-outcome > .last-star-result { color: #dbc78f; font-size: 16px; font-family: var(--serif); }
+@keyframes pick-star-pulse { to { filter: drop-shadow(0 0 11px currentColor); opacity: .65; } }
 .constellation-number { position: absolute; top: 8px; left: 10px; color: #7d9990; font-size: 8px; }
 .hidden-prize { font-size: 8px; margin-top: 5px; color: #91a59d; text-transform: uppercase; }
 .chosen .hidden-prize { color: var(--prize-color); }
@@ -320,7 +351,10 @@ main { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
   .jackpot-tiers small { font-size: 6px; }
   .constellation-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .constellation-card { aspect-ratio: 1.15; padding: 7px 2px; }
-  .constellation-card .zodiac-symbol > svg { width: 43px; height: 43px; }
+  .constellation-card .constellation-chart { width: 53px; height: 53px; }
+  .star-pick-map { height: 430px; }
+  .pick-star { width: 40px; height: 46px; }
+  .pick-star span { font-size: 8px; }
   .constellation-card strong { font-size: 10px; }
   .constellation-number { top: 5px; left: 6px; font-size: 6px; }
   .hidden-prize { font-size: 7px; margin-top: 4px; }

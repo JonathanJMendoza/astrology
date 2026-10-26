@@ -1,5 +1,5 @@
-// Calibrated by scripts/rtp.ts, including free-spin retriggers and sign-pick prizes.
-export const ZODIAC_WEIGHT = 92_448_882_741;
+// Calibrated by scripts/rtp.ts, including retriggers and the first-to-three star bonus.
+export const ZODIAC_WEIGHT = 92_227_671_483;
 export const MOON_WEIGHT = 30_000_000_000;
 export const TOTAL_WEIGHT = 1_200_000_000_000;
 export const WILD_WEIGHT = TOTAL_WEIGHT - 12 * ZODIAC_WEIGHT - MOON_WEIGHT;
@@ -29,7 +29,11 @@ export const TIERS = {
   grand: { name: 'Grand', multiplier: 100, color: '#f1cd80', celestial: 'Solar coronation' },
 } as const;
 export type TierId = keyof typeof TIERS;
-export const BONUS_DECK: TierId[] = ['mini', 'mini', 'mini', 'mini', 'mini', 'mini', 'minor', 'minor', 'minor', 'minor', 'major', 'grand'];
+export const LEGACY_BONUS_DECK: TierId[] = ['mini', 'mini', 'mini', 'mini', 'mini', 'mini', 'minor', 'minor', 'minor', 'minor', 'major', 'grand'];
+export const MATCH_TIERS = ['mini', 'minor', 'major'] as const;
+export type MatchTier = typeof MATCH_TIERS[number];
+export const STAR_WEIGHTS: Record<MatchTier, number> = { mini: 3, minor: 2, major: 1 };
+export const STAR_TOTAL_WEIGHT = 6;
 export const BETS = [50, 100, 150, 200, 250] as const;
 export const DENOMINATIONS = [1, 2, 5, 10, 25, 50, 100, 200] as const;
 export const REFILL_CENTS = 1_000_000;

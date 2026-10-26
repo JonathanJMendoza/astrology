@@ -1,5 +1,23 @@
 import { evaluateLine, SYMBOLS, type SymbolId } from '../src/game';
-import { BONUS_DECK, MOON_WEIGHT, TIERS, TOTAL_WEIGHT, WILD_WEIGHT, ZODIAC_WEIGHT, freeSpinAward } from '../src/rules';
+import { MATCH_TIERS, MOON_WEIGHT, STAR_TOTAL_WEIGHT, STAR_WEIGHTS, TIERS, TOTAL_WEIGHT, WILD_WEIGHT, ZODIAC_WEIGHT, freeSpinAward, type MatchTier } from '../src/rules';
+
+export function analyzeStarMatch() {
+  const denominator = BigInt(STAR_TOTAL_WEIGHT) ** 7n;
+  const winners: Record<MatchTier, bigint> = { mini: 0n, minor: 0n, major: 0n };
+  const counts = { mini: 0, minor: 0, major: 0 };
+  function visit(depth: number, weight: bigint) {
+    for (const tier of MATCH_TIERS) {
+      counts[tier]++;
+      const nextWeight = weight * BigInt(STAR_WEIGHTS[tier]);
+      if (counts[tier] === 3) winners[tier] += nextWeight * BigInt(STAR_TOTAL_WEIGHT) ** BigInt(6 - depth);
+      else visit(depth + 1, nextWeight);
+      counts[tier]--;
+    }
+  }
+  visit(0, 1n);
+  const numerator = MATCH_TIERS.reduce((sum, tier) => sum + winners[tier] * BigInt(TIERS[tier].multiplier), 0n);
+  return { numerator, denominator, winners, mean: Number(numerator) / Number(denominator) };
+}
 
 export function lineCoefficients() {
   const coefficients = Array.from({ length: 6 }, () => Array<number>(6).fill(0));
@@ -34,8 +52,9 @@ export function analyzeRtp(coefficients = lineCoefficients(), zodiacWeight = ZOD
     triggerNumerator += count;
     freeNumerator += count * BigInt(freeSpinAward(k));
   }
-  const deckSum = BigInt(BONUS_DECK.reduce((sum, tier) => sum + TIERS[tier].multiplier, 0));
-  const deckSize = BigInt(BONUS_DECK.length);
+  const starMatch = analyzeStarMatch();
+  const deckSum = starMatch.numerator;
+  const deckSize = starMatch.denominator;
   // R = L + P*E[J] + E[F]*R. All terms use exact integer outcome counts.
   const numerator = lineNumerator * total ** 10n * deckSize + triggerNumerator * deckSum;
   const denominator = (boardDenominator - freeNumerator) * deckSize;
@@ -43,7 +62,7 @@ export function analyzeRtp(coefficients = lineCoefficients(), zodiacWeight = ZOD
   return { rtp: ratio(numerator, denominator), houseEdge: 1 - ratio(numerator, denominator),
     lineReturn: ratio(lineNumerator, total ** 5n), bonusTrigger: ratio(triggerNumerator, boardDenominator),
     expectedFreeSpins: ratio(freeNumerator, boardDenominator), bonusMean: Number(deckSum) / Number(deckSize),
-    numerator, denominator, enumeratedLines: SYMBOLS.length ** 5 };
+    starMatch, numerator, denominator, enumeratedLines: SYMBOLS.length ** 5 };
 }
 if (process.argv[1]?.endsWith('rtp.ts')) {
   const coefficients = lineCoefficients();

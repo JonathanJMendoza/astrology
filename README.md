@@ -1,6 +1,6 @@
 # Astral Fortune
 
-An astrology-themed slot game built with React, TypeScript, and Vite. Includes all 12 zodiac signs, five reels, ten paylines, casino-style synthesized audio, Sun wilds, Moon free spins, and a full-screen celestial sign-pick bonus. It uses virtual dollars only; there are no purchases, deposits, withdrawals, or cash prizes.
+An astrology-themed slot game built with React, TypeScript, and Vite. Includes all 12 zodiac signs, five reels, ten paylines, moving celestial backgrounds, casino-style synthesized audio, Sun wilds, Moon free spins, and a full-screen constellation match-three bonus. It uses virtual dollars only; there are no purchases, deposits, withdrawals, or cash prizes.
 
 ## Development
 
@@ -38,13 +38,15 @@ Vite uses relative asset paths, so the build works under `/astrology/` as well a
 - Choose 50, 100, 150, 200, or 250 credits. Denominations are $0.01, $0.02, $0.05, $0.10, $0.25, $0.50, $1.00, or $2.00 per credit. Total wager = credits times denomination. The wallet uses integer cents and keeps its dollar value when denomination changes.
 - Three or more consecutive matching symbols pay from the leftmost reel. Only the highest payout per line is awarded; separate line wins add together.
 - Sun symbols are wild and substitute for zodiac symbols, but not Moon scatters. A full screen of Suns pays 1,000 times the total bet.
-- Three, four, or five or more Moons anywhere award 5, 8, or 12 free spins respectively, plus one celestial pick. Bonuses can retrigger. Free spins keep both the triggering credits and denomination.
-- The 12 sign choices hide six Mini (2x), four Minor (5x), one Major (20x), and one Grand (100x) prize. Multipliers apply to the triggering total wager. The deck is shuffled uniformly before every bonus; all signs have equal odds.
+- Three, four, or five or more Moons anywhere award 5, 8, or 12 free spins respectively, plus a constellation bonus. Bonuses can retrigger. Free spins keep both the triggering credits and denomination.
+- Choose one of twelve distinct constellation star maps, then click individual stars. Each star independently hides Mini (probability 1/2), Minor (1/3), or Major (1/6). The first prize revealed three times wins 2x, 5x, or 20x the triggering total wager. A winner is guaranteed within seven picks. All constellations have equal odds.
 - Each reel cell uses an independent weighted draw through `random-js` and the browser's cryptographic random source. All 12 signs have equal probabilities and paytables. Rules and weights are defined in `src/rules.ts`.
-- The theoretical return is 98.00% including free spins, retriggers, and celestial picks, equivalent to a 2.00% house edge. This is a long-run expectation, not a guarantee for an individual session. See [the mathematical model](docs/MATH.md).
-- A spin is settled and saved before its animation. Pending bonus decks and chosen prizes survive reloads; a selected prize is credited exactly once. Up to 30 spins are saved. Blocked storage falls back to the current page session. Legacy credit balances migrate at a one-cent denomination.
+- The theoretical return is 98.00% including free spins, retriggers, and constellation matches, equivalent to a 2.00% house edge. This is a long-run expectation, not a guarantee for an individual session. See [the mathematical model](docs/MATH.md).
+- A spin is settled and saved before its animation. The chosen constellation, hidden star prizes, and individual reveals survive reloads. Only the first third match credits a prize, exactly once. Up to 30 spins are saved. Blocked storage falls back to the current page session. Legacy credit balances migrate at a one-cent denomination, and unfinished version-2 bonuses retain their original awards.
 - The wallet refills to $10,000 in demo dollars for free. Autoplay runs for 10, 25, or 50 spins and stops on a bonus or when a panel opens. The current spin still finishes.
 - Sound starts after a user gesture and can be muted immediately. Mechanical reel ticks, reel stops, coin chimes, win melodies, and bonus fanfares are synthesized locally without remote audio requests.
+- Stars drift and twinkle during normal play and bonus play, with occasional shooting stars and gently moving celestial artwork. Reduced-motion preferences produce a still background. Canvas animation pauses while the page is hidden.
+- Constellations use distinct, stylized asterism diagrams with named constellation members. These are game illustrations, not coordinate-accurate sky-navigation charts.
 
 The game is a browser demo with locally editable state, not a real-money gambling system. It has no server-side ledger or certified gambling RNG.
 

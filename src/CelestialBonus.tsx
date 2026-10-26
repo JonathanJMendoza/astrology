@@ -1,7 +1,10 @@
 import { useEffect, useRef } from 'react';
-import { Sparkles, Volume2, VolumeX } from 'lucide-react';
-import { TIERS, ZODIAC, money, type PendingBonus, type ZodiacId } from './game';
-import { CelestialWheel, ZodiacSymbol } from './Symbol';
+import { Sparkles, Star, Volume2, VolumeX } from 'lucide-react';
+import { MATCH_TIERS, TIERS, ZODIAC, bonusCounts, money, type PendingBonus, type ZodiacId, type TierId } from './game';
+import { CelestialWheel } from './Symbol';
+import { CONSTELLATIONS } from './constellations';
+import ConstellationChart from './ConstellationChart';
+import Starfield from './Starfield';
 
 function CelestialSky() {
   return <svg className="celestial-sky" viewBox="0 0 1440 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
@@ -19,14 +22,18 @@ function CelestialSky() {
   </svg>;
 }
 
-export default function CelestialBonus({ bonus, freeSpins, sound, onSound, onChoose, onCollect }: {
+export default function CelestialBonus({ bonus, freeSpins, sound, onSound, onChoose, onReveal, onCollect }: {
   bonus: PendingBonus; freeSpins: number; sound: boolean; onSound: () => void;
-  onChoose: (sign: ZodiacId) => void; onCollect: () => void;
+  onChoose: (sign: ZodiacId) => void; onReveal: (index: number) => void; onCollect: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const collect = useRef<HTMLButtonElement>(null);
-  const selectedIndex = ZODIAC.findIndex(sign => sign.id === bonus.selectedSign);
-  const tier = selectedIndex >= 0 ? TIERS[bonus.prizes[selectedIndex]] : null;
+  const mapTitle = useRef<HTMLHeadingElement>(null);
+  const selected = ZODIAC.find(sign => sign.id === bonus.selectedSign);
+  const tier = bonus.winner ? TIERS[bonus.winner] : null;
+  const counts = bonusCounts(bonus);
+  const tiers: readonly TierId[] = bonus.mode === 'legacy' ? ['mini', 'minor', 'major', 'grand'] : MATCH_TIERS;
+  const lastStar = bonus.revealedStars.at(-1);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const overflow = document.body.style.overflow;
@@ -34,25 +41,34 @@ export default function CelestialBonus({ bonus, freeSpins, sound, onSound, onCho
     dialog.current?.showModal();
     return () => { document.body.style.overflow = overflow; previous?.focus(); };
   }, []);
-  useEffect(() => { if (tier) collect.current?.focus(); }, [tier]);
+  useEffect(() => { if (tier) collect.current?.focus(); else if (selected) mapTitle.current?.focus({ preventScroll: true }); }, [tier, selected]);
 
   return <dialog ref={dialog} className={`celestial-bonus ${tier ? 'revealed' : ''}`} onCancel={event => event.preventDefault()} aria-labelledby="bonus-title" style={{ '--prize-color': tier?.color ?? '#e4c789' } as React.CSSProperties}>
-    <CelestialSky /><CelestialWheel className="bonus-wheel" />
+    <Starfield bright /><CelestialSky /><CelestialWheel className="bonus-wheel" />
     <button className="icon-button bonus-sound" aria-label={sound ? 'Mute bonus sound' : 'Enable bonus sound'} onClick={onSound}>{sound ? <Volume2 /> : <VolumeX />}</button>
     <div className="bonus-content">
       <header className="celestial-heading"><span className="edition"><Sparkles size={14} />THE CELESTIALS HAVE ALIGNED<Sparkles size={14} /></span>
-        <h2 id="bonus-title">{tier ? tier.celestial : 'Choose your constellation'}</h2>
-        <p>{tier ? `${ZODIAC[selectedIndex].name} reveals your fortune` : 'Twelve signs. One cosmic fortune.'}</p>
+        <h2 id="bonus-title" ref={mapTitle} tabIndex={-1}>{tier ? tier.celestial : selected ? `${selected.name} awaits` : 'Choose your constellation'}</h2>
+        <p>{tier ? `${selected?.name} reveals your fortune` : selected ? 'Follow the stars. Reveal your fortune.' : 'Twelve constellations. One cosmic fortune.'}</p>
       </header>
-      <div className="jackpot-tiers" aria-label="Possible bonus prizes">{Object.entries(TIERS).map(([id, prize]) => <div key={id} className={tier && tier.name === prize.name ? 'selected-tier' : ''} style={{ '--tier-color': prize.color } as React.CSSProperties}><span>{prize.name}</span><strong>{money(prize.multiplier * bonus.bet * bonus.denomination)}</strong><small>{prize.multiplier}× BET</small></div>)}</div>
-      <div className="constellation-grid" aria-label="Choose an astrology sign">{ZODIAC.map((sign, index) => {
-        const selected = sign.id === bonus.selectedSign;
-        return <button key={sign.id} className={`constellation-card ${selected ? 'chosen' : ''}`} disabled={!!bonus.selectedSign} onClick={() => onChoose(sign.id)} aria-label={`Choose ${sign.name}`} aria-pressed={selected}>
-          <span className="constellation-number">{String(index + 1).padStart(2, '0')}</span><ZodiacSymbol id={sign.id} label={false} /><strong>{sign.name}</strong>
-          <span className="hidden-prize">{tier ? TIERS[bonus.prizes[index]].name : sign.element}</span>
-        </button>;
+      <div className={`jackpot-tiers ${bonus.mode === 'match3' ? 'match-tiers' : ''}`} aria-label="Possible bonus prizes">{tiers.map(id => {
+        const prize = TIERS[id];
+        return <div key={id} className={bonus.winner === id ? 'selected-tier' : ''} style={{ '--tier-color': prize.color } as React.CSSProperties}><span>{prize.name}</span><strong>{money(prize.multiplier * bonus.bet * bonus.denomination)}</strong><small>{prize.multiplier}× BET</small>{bonus.mode === 'match3' && <div className="match-counter" aria-label={`${prize.name}: ${counts[id]} of 3 matched`}>{[0, 1, 2].map(i => <Star key={i} size={13} className={i < counts[id] ? 'matched' : ''} />)}</div>}</div>;
       })}</div>
-      <div className="bonus-outcome" aria-live="polite" aria-atomic="true">{tier ? <><span className="prize-label">{tier.name.toUpperCase()} BONUS</span><strong data-testid="bonus-amount">{money(tier.multiplier * bonus.bet * bonus.denomination)}</strong><span>+ {freeSpins} FREE SPINS IN YOUR ORBIT</span></> : <><Sparkles size={22} /><span>YOUR FORTUNE AWAITS</span><small>Prizes are shuffled each bonus. Every sign has the same odds.</small></>}</div>
+      {!selected ? <div className="constellation-grid" aria-label="Choose a constellation">{ZODIAC.map((sign, index) => <button key={sign.id} className="constellation-card" onClick={() => onChoose(sign.id)} aria-label={`Choose ${sign.name}`} style={{ '--constellation-color': sign.color } as React.CSSProperties}>
+        <span className="constellation-number">{String(index + 1).padStart(2, '0')}</span><ConstellationChart sign={sign.id} /><strong>{sign.name}</strong><span className="hidden-prize">{sign.element}</span>
+      </button>)}</div> : <div className={`star-pick-map ${tier ? 'complete' : ''}`} style={{ '--constellation-color': selected.color } as React.CSSProperties}>
+        <ConstellationChart sign={selected.id} stretch />
+        {CONSTELLATIONS[selected.id].stars.map(([x, y, name], index) => {
+          const revealed = bonus.revealedStars.includes(index);
+          const prize = TIERS[bonus.prizes[index]];
+          const won = revealed && bonus.winner === bonus.prizes[index];
+          return <button key={index} className={`pick-star ${revealed ? 'uncovered' : ''} ${won ? 'winning-star' : ''}`} style={{ left: `${x}%`, top: `${y}%`, '--star-prize-color': revealed ? prize.color : selected.color } as React.CSSProperties} aria-label={revealed ? `Star ${index + 1}, ${name}: ${prize.name}` : `Reveal star ${index + 1}, ${name}`} disabled={revealed || !!tier || bonus.mode === 'legacy'} onClick={() => onReveal(index)} title={name}>
+            <Star size={23} fill="currentColor" strokeWidth={1} /><span>{revealed ? prize.name : String(index + 1).padStart(2, '0')}</span>
+          </button>;
+        })}
+      </div>}
+      <div className="bonus-outcome" aria-live="polite" aria-atomic="true">{tier ? <><span className="prize-label">{tier.name.toUpperCase()} BONUS</span><strong data-testid="bonus-amount">{money(tier.multiplier * bonus.bet * bonus.denomination)}</strong><span>+ {freeSpins} FREE SPINS IN YOUR ORBIT</span></> : selected ? <><span className="last-star-result">{lastStar !== undefined ? `${TIERS[bonus.prizes[lastStar]].name} revealed` : 'Your constellation is ready'}</span><small>Match three of a prize to win. Choose another star.</small></> : <><Sparkles size={22} /><span>YOUR FORTUNE AWAITS</span><small>Choose a constellation, then match three prizes in its stars.</small></>}</div>
       {tier && <button className="primary-button collect-bonus" ref={collect} onClick={onCollect}>Collect & continue<Sparkles size={17} /></button>}
     </div>
   </dialog>;

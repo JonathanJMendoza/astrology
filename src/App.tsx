@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Check, ChevronRight, CircleHelp, Coins, Diamond, History, Info, Maximize2, Moon, Plus, RotateCw, Sparkles, Square, Volume2, VolumeX, X, Zap } from 'lucide-react';
-import { BETS, DENOMINATIONS, INITIAL_BOARD, LEGACY_STORAGE_KEY, PAYLINES, REFILL_CENTS, STORAGE_KEY, SYMBOLS, TIERS, chooseBonus, collectBonus, drawBoard, money, newSession, restoreSession, settleSpin, totalWin, type Board, type Session, type SpinRecord, type ZodiacId } from './game';
+import { BETS, DENOMINATIONS, INITIAL_BOARD, LEGACY_STORAGE_KEY, MATCH_TIERS, PAYLINES, PREVIOUS_STORAGE_KEY, REFILL_CENTS, STORAGE_KEY, SYMBOLS, TIERS, chooseBonus, collectBonus, drawBoard, money, newSession, restoreSession, revealBonusStar, settleSpin, totalWin, type Board, type Session, type SpinRecord, type ZodiacId } from './game';
 import { CelestialWheel, ZodiacSymbol } from './Symbol';
 import { playTone, setAudioEnabled, stopReels } from './audio';
 import CelestialBonus from './CelestialBonus';
+import Starfield from './Starfield';
 
 const format = (n: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n);
 const compactMoney = (cents: number) => cents < 100000 ? money(cents) : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 2 }).format(cents / 100);
 type Panel = 'paytable' | 'history' | 'wallet' | 'about' | null;
 function readSession() {
-  try { return restoreSession(localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY)); } catch { return newSession(); }
+  try { return restoreSession(localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(PREVIOUS_STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY)); } catch { return newSession(); }
 }
 function readPreference(key: string, fallback = false) {
   try { const value = localStorage.getItem(`astral.${key}`); return value === null ? fallback : value === 'true'; } catch { return fallback; }
@@ -49,9 +50,10 @@ function Paytable({ bet, denomination, initialTab }: { bet: number; denomination
           {symbol.pays.map(payout => <td key={payout}>{money(payout * bet * denomination / 10)}</td>)}
         </tr>)}
       </tbody></table>
-      <div className="moon-rule"><ZodiacSymbol id="moon" small label={false} /><div><h3>Celestial pick + free spins</h3><p>3 moons: 5 spins · 4 moons: 8 spins · 5+ moons: 12 spins</p></div></div>
-      <div className="bonus-odds">{Object.entries(TIERS).map(([id, tier]) => <div key={id}><strong>{tier.name}</strong><span>{tier.multiplier}× total bet</span><small>{id === 'mini' ? '6' : id === 'minor' ? '4' : '1'} of 12 signs</small></div>)}</div>
-      <p className="rules-copy">Every Moon trigger also awards one celestial pick. Six Mini, four Minor, one Major, and one Grand are shuffled behind the 12 signs before your choice; every sign has identical odds. Bonuses can retrigger on free spins. The triggering credits and denomination stay locked throughout free spins.</p>
+      <div className="moon-rule"><ZodiacSymbol id="moon" small label={false} /><div><h3>Constellation match + free spins</h3><p>3 moons: 5 spins · 4 moons: 8 spins · 5+ moons: 12 spins</p></div></div>
+      <div className="bonus-odds">{MATCH_TIERS.map(id => <div key={id}><strong>{TIERS[id].name}</strong><span>{TIERS[id].multiplier}× total bet</span><small>{id === 'mini' ? '50%' : id === 'minor' ? '33.33%' : '16.67%'} per star</small></div>)}</div>
+      <p className="rules-copy">Every Moon trigger also awards a constellation bonus. Choose a constellation, then reveal its stars. The first prize revealed three times wins; a winner is guaranteed within seven picks. Each star independently hides Mini (1/2), Minor (1/3), or Major (1/6). Every constellation has equal odds, and its rewards are saved before your first pick.</p>
+      <p className="rules-copy">Bonuses can retrigger on free spins. The triggering credits and denomination stay locked throughout free spins.</p>
       <p className="rules-copy">Matches pay from the leftmost reel. The Sun substitutes for every sign, but not the Moon. Only the highest win per line pays; separate lines add together. All signs have equal reel odds and payouts.</p>
       <div className="rtp-note"><strong>98.00% theoretical RTP · 2.00% house edge</strong><p>Includes line wins, free spins, retriggers, and celestial picks. Applies to every wager and denomination over long-run play, not to each session.</p></div>
     </> : <>
@@ -191,7 +193,14 @@ export default function App() {
     if (!current.bonus || current.bonus.selectedSign) return;
     const next = chooseBonus(current, sign);
     persist(next); setSession(next); setResult(next.history[0]);
-    playTone(next.history[0]?.bonus?.tier === 'grand' ? 'grand' : 'bonus', soundRef.current);
+    playTone(next.bonus?.winner ? 'bonus' : 'pick', soundRef.current);
+  }
+  function revealStar(index: number) {
+    const current = sessionRef.current;
+    const next = revealBonusStar(current, index);
+    if (next === current) return;
+    persist(next); setSession(next); setResult(next.history[0]);
+    playTone(next.bonus?.winner ? 'bonus' : 'pick', soundRef.current);
   }
   function finishBonus() {
     const next = collectBonus(sessionRef.current);
@@ -213,8 +222,7 @@ export default function App() {
   const bestWin = Math.max(0, ...session.history.map(record => totalWin(record) * record.denomination));
 
   return <div className="app-shell">
-    <div className="cosmos" aria-hidden="true"><CelestialWheel className="background-wheel" />
-      {Array.from({ length: 58 }, (_, i) => <i key={i} className={i % 11 === 0 ? 'star large' : 'star'} style={{ left: `${(i * 73 + 11) % 100}%`, top: `${(i * 47 + 3) % 100}%`, opacity: 0.12 + i % 5 * 0.07 }} />)}
+    <div className="cosmos" aria-hidden="true"><Starfield /><CelestialWheel className="background-wheel" />
     </div>
     <header className="site-header">
       <a className="brand" href="#" aria-label="Astral Fortune home" onClick={event => { event.preventDefault(); setPanel(null); }}><Sparkles size={27} strokeWidth={1.2} /><span>ASTRAL<span className="brand-dot">.</span></span></a>
@@ -234,7 +242,7 @@ export default function App() {
         <div className="machine-topline"><span className="active-lines"><i />10 ACTIVE PAYLINES</span><div className="jackpot-label"><Sparkles size={13} /><span>WRITTEN IN THE STARS</span><Sparkles size={13} /></div><button className="max-win" onClick={() => openPanel('paytable')}>UP TO <strong>1,000×</strong><Info size={13} /></button></div>
         <div className="cabinet">
           <span className="corner corner-tl" aria-hidden="true" /><span className="corner corner-tr" aria-hidden="true" /><span className="corner corner-bl" aria-hidden="true" /><span className="corner corner-br" aria-hidden="true" />
-          <div className="bonus-strip"><span className="bonus-name"><Moon size={15} />CELESTIAL BONUS</span><div className="bonus-condition">{session.freeSpins ? <><Sparkles size={14} /><strong>{session.freeSpins} FREE {session.freeSpins === 1 ? 'SPIN' : 'SPINS'}</strong><span>IN YOUR ORBIT</span></> : <><span className="mini-moons"><Moon /><Moon /><Moon /></span><span>3+ MOONS: SIGN PICK + FREE SPINS</span></>}</div></div>
+          <div className="bonus-strip"><span className="bonus-name"><Moon size={15} />CELESTIAL BONUS</span><div className="bonus-condition">{session.freeSpins ? <><Sparkles size={14} /><strong>{session.freeSpins} FREE {session.freeSpins === 1 ? 'SPIN' : 'SPINS'}</strong><span>IN YOUR ORBIT</span></> : <><span className="mini-moons"><Moon /><Moon /><Moon /></span><span>3+ MOONS: STAR MATCH + FREE SPINS</span></>}</div></div>
           <div className="reels-area">
             <div className="line-pointer left" aria-hidden="true">1<span /></div>
             <div className="reels" role="img" aria-label={spinning ? 'The five reels are spinning' : `Reels, top to bottom: ${board.map(column => column.join(', ')).join('; ')}`} aria-busy={spinning}>
@@ -279,7 +287,7 @@ export default function App() {
       <section className="celestial-notes" aria-label="Celestial rewards">
         <div><span className="note-icon"><ZodiacSymbol id="sun" label={false} small /></span><div><h2>A little sunshine</h2><p>SUN WILD · EVERY SIGN HAS A CHANCE</p></div></div>
         <span className="notes-divider" />
-        <div><span className="note-icon"><ZodiacSymbol id="moon" label={false} small /></span><div><h2>A celestial calling</h2><p>MINI · MINOR · MAJOR · GRAND</p></div></div>
+        <div><span className="note-icon"><ZodiacSymbol id="moon" label={false} small /></span><div><h2>A celestial calling</h2><p>MATCH THREE · MINI · MINOR · MAJOR</p></div></div>
         <span className="notes-divider" />
         <div><span className="note-icon"><Sparkles size={29} strokeWidth={1} /></span><div><h2>Your brightest moment</h2><p>{bestWin ? `${money(bestWin)} · BEST OF YOUR LAST 30 SPINS` : 'YOUR BIGGEST WIN IS STILL TO COME'}</p></div></div>
       </section>
@@ -291,8 +299,8 @@ export default function App() {
       {panel === 'paytable' && <Paytable bet={effectiveBet} denomination={effectiveDenomination} initialTab={payTab} />}
       {panel === 'history' && <HistoryPanel records={session.history} />}
       {panel === 'wallet' && <div className="wallet-panel"><Coins size={38} strokeWidth={1.2} /><span>YOUR VIRTUAL BALANCE</span><strong>{money(session.balance)}</strong><p>{format(Math.floor(session.balance / effectiveDenomination))} credits at {money(effectiveDenomination)} each. Denomination changes preserve the dollar balance.</p><button className="primary-button" onClick={refill} disabled={spinning || session.balance >= REFILL_CENTS}>{session.balance >= REFILL_CENTS ? <><Check size={18} />Your wallet is full</> : <><Plus size={18} />Refill to $10,000</>}</button><small>Demo dollars only. No purchases or cash value.</small></div>}
-      {panel === 'about' && <div className="about-panel"><CelestialWheel /><p>A little escape to the celestial side.</p><p>All 12 zodiac signs share equal odds. Three or more Moons unlock a celestial pick and free spins. The hidden Mini, Minor, Major, and Grand rewards shuffle before each pick. Free spins retain the triggering credits and denomination.</p><p>Theoretical RTP is 98.00%, including all bonuses and retriggers: a 2.00% house edge over long-run play. It does not guarantee a return for any individual spin or session.</p><p>Dollar amounts are virtual. Credits cannot be purchased, transferred, or redeemed. Your wallet, bonus choice, and latest 30 spins are saved in this browser. Autoplay stops at its limit, on a bonus, when you open a panel, or when you stop it.</p><button className="primary-button" onClick={() => setPanel(null)}>Back to the stars<Sparkles size={17} /></button></div>}
+      {panel === 'about' && <div className="about-panel"><CelestialWheel /><p>A little escape to the celestial side.</p><p>All 12 zodiac signs share equal odds. Three or more Moons unlock a constellation match and free spins. Choose a constellation, then reveal stars until three Mini, Minor, or Major prizes match. Your first match wins. Free spins retain the triggering credits and denomination.</p><p>Theoretical RTP is 98.00%, including all bonuses and retriggers: a 2.00% house edge over long-run play. It does not guarantee a return for any individual spin or session.</p><p>Dollar amounts are virtual. Credits cannot be purchased, transferred, or redeemed. Your wallet, star reveals, and latest 30 spins are saved in this browser. Autoplay stops at its limit, on a bonus, when you open a panel, or when you stop it.</p><button className="primary-button" onClick={() => setPanel(null)}>Back to the stars<Sparkles size={17} /></button></div>}
     </Modal>}
-    {session.bonus && !spinning && <CelestialBonus bonus={session.bonus} freeSpins={session.freeSpins} sound={sound} onSound={() => setSound(!sound)} onChoose={selectBonus} onCollect={finishBonus} />}
+    {session.bonus && !spinning && <CelestialBonus bonus={session.bonus} freeSpins={session.freeSpins} sound={sound} onSound={() => setSound(!sound)} onChoose={selectBonus} onReveal={revealStar} onCollect={finishBonus} />}
   </div>;
 }

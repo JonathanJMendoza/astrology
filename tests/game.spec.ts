@@ -1,8 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
-import { BONUS_DECK, STORAGE_KEY, chooseBonus, newSession, settleSpin, type Board, type Session } from '../src/game';
+import { STORAGE_KEY, chooseBonus, newSession, revealBonusStar, settleSpin, type Board, type Session, type TierId } from '../src/game';
+import { MAX_CONSTELLATION_STARS } from '../src/constellations';
 
 const moonBoard: Board = Array.from({ length: 5 }, () => ['moon', 'moon', 'moon']);
-const pendingBonus = (bet = 100, denomination = 1) => settleSpin({ ...newSession(), bet, denomination }, moonBoard, 123, () => [...BONUS_DECK]).session;
+const fixedDeck = (): TierId[] => Array.from({ length: MAX_CONSTELLATION_STARS }, (_, i) => (['mini', 'minor', 'major', 'mini', 'minor', 'major', 'major'] as const)[i % 7]);
+const pendingBonus = (bet = 100, denomination = 1) => settleSpin({ ...newSession(), bet, denomination }, moonBoard, 123, fixedDeck).session;
 async function seed(page: Page, session: Session) {
   await page.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: STORAGE_KEY, value: session });
 }
@@ -37,6 +39,10 @@ test('12 signs, all wager settings, sound toggle, accounting, paytable and histo
   expect(data.balance).toBe(1000000 - 50 + data.history[0].payout);
   if (data.bonus) {
     await page.getByRole('button', { name: 'Choose Aries', exact: true }).click();
+    for (let i = 1; i <= 7; i++) {
+      if ((await stored(page)).bonus?.winner) break;
+      await page.getByRole('button', { name: new RegExp(`^Reveal star ${i},`) }).click();
+    }
     await page.getByRole('button', { name: 'Collect & continue' }).click();
     data = await stored(page);
   }
@@ -54,12 +60,14 @@ test('12 signs, all wager settings, sound toggle, accounting, paytable and histo
   expect(errors).toEqual([]);
 });
 
-test('celestial pick, prize reveal, and exact-once payout survive refresh', async ({ page }, testInfo) => {
+test('constellation selection, individual star reveals, and first match survive refresh', async ({ page }, testInfo) => {
   const initial = pendingBonus();
   await seed(page, initial);
   await page.goto('/');
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.locator('.constellation-card')).toHaveCount(12);
+  await expect(page.locator('.constellation-card .constellation-chart')).toHaveCount(12);
+  await expect(page.locator('.constellation-card .zodiac-symbol')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
@@ -68,14 +76,26 @@ test('celestial pick, prize reveal, and exact-once payout survive refresh', asyn
   await page.reload();
   expect((await stored(page)).bonus!.prizes).toEqual(deck);
   await page.getByRole('button', { name: 'Choose Pisces', exact: true }).click();
-  await expect(page.getByTestId('bonus-amount')).toHaveText('$100.00');
-  await expect(page.getByRole('heading', { name: 'Solar coronation' })).toBeVisible();
-  await expect(page.locator('.constellation-card:disabled')).toHaveCount(12);
-  expect((await stored(page)).balance).toBe(initial.balance + 10000);
-  await page.screenshot({ path: testInfo.outputPath('bonus-grand.png'), fullPage: true });
+  await expect(page.getByRole('heading', { name: 'Pisces awaits' })).toBeVisible();
+  await expect(page.getByTestId('bonus-amount')).toHaveCount(0);
+  expect((await stored(page)).balance).toBe(initial.balance);
+  await page.getByRole('button', { name: /^Reveal star 1,/ }).click();
+  await page.getByRole('button', { name: /^Reveal star 2,/ }).click();
+  await expect(page.getByLabel('Mini: 1 of 3 matched')).toBeVisible();
+  await expect(page.getByLabel('Minor: 1 of 3 matched')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('star-map.png'), fullPage: true });
   await page.reload();
-  await expect(page.getByTestId('bonus-amount')).toHaveText('$100.00');
-  expect((await stored(page)).balance).toBe(initial.balance + 10000);
+  expect((await stored(page)).bonus!.revealedStars).toEqual([0, 1]);
+  await expect(page.getByRole('button', { name: /^Star 1,.*Mini$/ })).toBeDisabled();
+  for (let i = 3; i <= 7; i++) await page.getByRole('button', { name: new RegExp(`^Reveal star ${i},`) }).click();
+  await expect(page.getByTestId('bonus-amount')).toHaveText('$20.00');
+  await expect(page.getByRole('heading', { name: 'Saturn ascendant' })).toBeVisible();
+  await expect(page.locator('.winning-star')).toHaveCount(3);
+  expect((await stored(page)).balance).toBe(initial.balance + 2000);
+  await page.screenshot({ path: testInfo.outputPath('bonus-major.png'), fullPage: true });
+  await page.reload();
+  await expect(page.getByTestId('bonus-amount')).toHaveText('$20.00');
+  expect((await stored(page)).balance).toBe(initial.balance + 2000);
   await page.getByRole('button', { name: 'Collect & continue' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Free spin', exact: true })).toBeEnabled();
@@ -146,13 +166,63 @@ test('wager controls and maximum bonus amounts fit desktop and mobile', async ({
     });
     expect(overlaps).toBe(false);
   }
-  const bonus = chooseBonus(pendingBonus(250, 200), 'pisces');
+  let bonus = chooseBonus(pendingBonus(250, 200), 'pisces');
+  for (let i = 0; i < 7; i++) bonus = revealBonusStar(bonus, i);
   await page.evaluate(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), { key: STORAGE_KEY, value: bonus });
   await page.reload();
-  await expect(page.getByTestId('bonus-amount')).toHaveText('$50,000.00');
+  await expect(page.getByTestId('bonus-amount')).toHaveText('$10,000.00');
   expect(await page.locator('.celestial-bonus').evaluate(element => element.scrollWidth <= innerWidth)).toBe(true);
-  for (const card of await page.locator('.constellation-card').all()) {
+  for (const card of await page.locator('.pick-star').all()) {
     expect(await card.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
+});
+
+test('play and bonus backgrounds draw visible pixels and actually animate', async ({ page }) => {
+  await page.goto('/');
+  const pixels = (selector: string) => page.locator(selector).evaluate(element => {
+    const canvas = element as HTMLCanvasElement;
+    const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+    let count = 0, hash = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i]) { count++; hash = (hash + i * data[i]) >>> 0; }
+    return { count, hash };
+  });
+  await page.evaluate(() => document.fonts.ready);
+  for (const selector of ['.cosmos .starfield', '.bonus-starfield']) {
+    if (selector.includes('bonus')) {
+      await page.evaluate(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), { key: STORAGE_KEY, value: pendingBonus() });
+      await page.reload();
+    }
+    await page.waitForTimeout(100);
+    const before = await pixels(selector);
+    await page.waitForTimeout(600);
+    const after = await pixels(selector);
+    expect(before.count).toBeGreaterThan(100);
+    expect(after.count).toBeGreaterThan(100);
+    expect(after.hash).not.toBe(before.hash);
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.waitForTimeout(150);
+  const still = await pixels('.bonus-starfield');
+  await page.waitForTimeout(500);
+  expect((await pixels('.bonus-starfield')).hash).toBe(still.hash);
+});
+
+test('all constellation star targets stay separate and inside their map', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: testInfo.project.name === 'mobile' ? 320 : 1440, height: 900 });
+  await page.goto('/');
+  for (const sign of ['aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo', 'libra', 'scorpio', 'sagittarius', 'capricorn', 'aquarius', 'pisces'] as const) {
+    const value = chooseBonus(pendingBonus(), sign);
+    await page.evaluate(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), { key: STORAGE_KEY, value });
+    await page.reload();
+    const geometry = await page.locator('.star-pick-map').evaluate(map => {
+      const parent = map.getBoundingClientRect();
+      const stars = Array.from(map.querySelectorAll('.pick-star')).map(star => star.getBoundingClientRect());
+      return {
+        overflow: stars.some(box => box.left < parent.left || box.right > parent.right || box.top < parent.top || box.bottom > parent.bottom),
+        overlap: stars.some((a, i) => stars.slice(i + 1).some(b => a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1)),
+      };
+    });
+    expect(geometry, sign).toEqual({ overflow: false, overlap: false });
   }
 });
 

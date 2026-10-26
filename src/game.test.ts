@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Random, MersenneTwister19937 } from 'random-js';
-import { BETS, BONUS_DECK, DENOMINATIONS, INITIAL_BOARD, PAYLINES, SYMBOLS, TIERS, ZODIAC, chooseBonus, collectBonus, drawBoard, drawBonusDeck, drawSymbol, evaluateBoard, evaluateLine, newSession, restoreSession, settleSpin, type Board, type SymbolId } from './game';
-import { MOON_WEIGHT, SIGN_PAYS, TOTAL_WEIGHT, WILD_PAYS, WILD_WEIGHT, ZODIAC_WEIGHT } from './rules';
-import { analyzeRtp } from '../scripts/rtp';
+import { BETS, DENOMINATIONS, INITIAL_BOARD, PAYLINES, SYMBOLS, ZODIAC, chooseBonus, collectBonus, drawBoard, drawBonusDeck, drawSymbol, evaluateBoard, evaluateLine, newSession, restoreSession, revealBonusStar, settleSpin, type Board, type SymbolId, type TierId } from './game';
+import { LEGACY_BONUS_DECK, MATCH_TIERS, MOON_WEIGHT, SIGN_PAYS, TOTAL_WEIGHT, WILD_PAYS, WILD_WEIGHT, ZODIAC_WEIGHT } from './rules';
+import { analyzeRtp, analyzeStarMatch } from '../scripts/rtp';
+import { CONSTELLATIONS, MAX_CONSTELLATION_STARS } from './constellations';
 
 const moonBoard: Board = Array.from({ length: 5 }, () => ['moon', 'moon', 'moon']);
 const sunBoard: Board = Array.from({ length: 5 }, () => ['sun', 'sun', 'sun']);
-const fixedDeck = () => [...BONUS_DECK];
+const fixedDeck = (): TierId[] => Array.from({ length: MAX_CONSTELLATION_STARS }, (_, i) => (['mini', 'minor', 'major', 'mini', 'minor', 'major', 'major'] as const)[i % 7]);
 const centerLine = (symbols: SymbolId[]): Board => symbols.map(symbol => ['moon', symbol, 'moon']);
 
 test('all 12 signs occupy equal, reachable weighted intervals', () => {
@@ -75,29 +76,43 @@ test('scatter awards include one sign pick and the correct number of free spins'
   }
 });
 
-test('bonus deck preserves six Mini, four Minor, one Major, and one Grand', () => {
+test('star rewards use independent weighted draws and every constellation has at least seven stars', () => {
+  for (const [ticket, expected] of [[1, 'mini'], [3, 'mini'], [4, 'minor'], [5, 'minor'], [6, 'major']] as const) {
+    assert.ok(drawBonusDeck(() => ticket).every(tier => tier === expected));
+  }
+  assert.throws(() => drawBonusDeck(() => 0));
+  for (const chart of Object.values(CONSTELLATIONS)) assert.ok(chart.stars.length >= 7);
+  assert.equal(new Set(Object.values(CONSTELLATIONS).map(chart => JSON.stringify(chart.stars))).size, 12);
   const variants = new Set<string>();
   for (let i = 0; i < 30; i++) {
     const deck = drawBonusDeck();
-    assert.deepEqual([...deck].sort(), [...BONUS_DECK].sort());
+    assert.equal(deck.length, MAX_CONSTELLATION_STARS);
+    assert.ok(deck.every(tier => MATCH_TIERS.includes(tier as typeof MATCH_TIERS[number])));
     variants.add(deck.join());
   }
   assert.ok(variants.size > 1);
 });
 
-test('each of the 12 sign choices pays its saved tier once, including after reload', () => {
-  for (const [index, sign] of ZODIAC.entries()) {
+test('all 12 constellations pay only on a third match and survive reload between every pick', () => {
+  for (const sign of ZODIAC) {
     const pending = settleSpin({ ...newSession(), denomination: 200 }, moonBoard, 123, fixedDeck).session;
     assert.throws(() => settleSpin(pending, INITIAL_BOARD), /Finish the celestial/);
     assert.equal(collectBonus(pending), pending);
     const restored = restoreSession(JSON.stringify(pending));
     assert.deepEqual(restored, pending);
-    const chosen = chooseBonus(restored, sign.id);
-    const expected = TIERS[BONUS_DECK[index]].multiplier * pending.bet * pending.denomination;
-    assert.equal(chosen.balance, pending.balance + expected);
-    assert.equal(chosen.history[0].bonus?.tier, BONUS_DECK[index]);
-    assert.deepEqual(restoreSession(JSON.stringify(chosen)), chosen);
+    let chosen = chooseBonus(restored, sign.id);
+    assert.equal(chosen.balance, pending.balance);
+    assert.equal(collectBonus(chosen), chosen);
     assert.equal(chooseBonus(chosen, 'aries'), chosen);
+    for (let i = 0; i < 7; i++) {
+      chosen = revealBonusStar(chosen, i);
+      assert.equal(chosen.balance, pending.balance + (i === 6 ? 20 * pending.bet * pending.denomination : 0));
+      assert.deepEqual(restoreSession(JSON.stringify(chosen)), chosen);
+      assert.equal(revealBonusStar(chosen, i), chosen);
+    }
+    assert.equal(chosen.history[0].bonus?.tier, 'major');
+    assert.deepEqual(restoreSession(JSON.stringify(chosen)), chosen);
+    assert.equal(revealBonusStar(chosen, 7), chosen);
     const collected = collectBonus(chosen);
     assert.equal(collected.bonus, null);
     assert.equal(collected.balance, chosen.balance);
@@ -105,9 +120,25 @@ test('each of the 12 sign choices pays its saved tier once, including after relo
   }
 });
 
+test('first match wins, invalid clicks do nothing, and any tier can pay', () => {
+  for (const tier of MATCH_TIERS) {
+    let session = settleSpin(newSession(), moonBoard, 1, () => Array(MAX_CONSTELLATION_STARS).fill(tier)).session;
+    assert.equal(revealBonusStar(session, 0), session);
+    session = chooseBonus(session, 'aries');
+    for (const invalid of [-1, 1.5, NaN, 99]) assert.equal(revealBonusStar(session, invalid), session);
+    for (let i = 0; i < 3; i++) session = revealBonusStar(session, i);
+    assert.equal(session.bonus?.winner, tier);
+    const balance = session.balance;
+    for (let i = 0; i < 7; i++) session = revealBonusStar(session, i);
+    assert.equal(session.balance, balance);
+  }
+});
+
 test('free spins keep original credits and denomination and can retrigger', () => {
   let session = settleSpin({ ...newSession(), bet: 150, denomination: 25 }, moonBoard, 1, fixedDeck).session;
-  session = collectBonus(chooseBonus(session, 'aries'));
+  session = chooseBonus(session, 'aries');
+  for (let i = 0; i < 7; i++) session = revealBonusStar(session, i);
+  session = collectBonus(session);
   session = { ...session, bet: 250, denomination: 200 };
   const result = settleSpin(session, moonBoard, 2, fixedDeck);
   assert.equal(result.record.free, true);
@@ -121,12 +152,25 @@ test('migration preserves legacy wallet, free wager, and historical payouts', ()
   const record = { ...settleSpin(newSession(), INITIAL_BOARD, 1).record, bet: 20, payout: 97 };
   const legacy = { version: 1, balance: 12345, bet: 20, bonusBet: 20, freeSpins: 3, history: [record] };
   const migrated = restoreSession(JSON.stringify(legacy));
-  assert.equal(migrated.version, 2);
+  assert.equal(migrated.version, 3);
   assert.equal(migrated.balance, 12345);
   assert.equal(migrated.bet, 50);
   assert.equal(migrated.bonusBet, 20);
   assert.equal(migrated.bonusDenomination, 1);
   assert.equal(migrated.history[0].payout, 97);
+});
+
+test('unfinished version-2 picks retain their original rewards during migration', () => {
+  const initial = settleSpin(newSession(), moonBoard, 99, fixedDeck).session;
+  const oldBonus = { spinId: initial.history[0].id, bet: 100, denomination: 1, prizes: [...LEGACY_BONUS_DECK], selectedSign: null };
+  const old = { ...initial, version: 2, bonus: oldBonus };
+  const restored = restoreSession(JSON.stringify(old));
+  assert.equal(restored.bonus?.mode, 'legacy');
+  const paid = chooseBonus(restored, 'pisces');
+  assert.equal(paid.balance, initial.balance + 10000);
+  assert.equal(paid.bonus?.winner, 'grand');
+  assert.deepEqual(restoreSession(JSON.stringify(paid)), paid);
+  assert.equal(chooseBonus(paid, 'pisces'), paid);
 });
 
 test('corrupt sessions are rejected and history remains bounded', () => {
@@ -146,7 +190,7 @@ test('analytical RTP is 98.00% including all bonuses and recursive free spins', 
   const difference = math.numerator * 50n - math.denominator * 49n;
   assert.ok((difference < 0n ? -difference : difference) * 1_000_000_000n < math.denominator * 50n);
   assert.ok(math.expectedFreeSpins < 1);
-  assert.equal(math.bonusMean, 152 / 12);
+  assert.equal(math.bonusMean, 1141776 / 279936);
   // Independently derive line expectation by the initial wild run and its first non-wild.
   const q = ZODIAC_WEIGHT / TOTAL_WEIGHT, w = WILD_WEIGHT / TOTAL_WEIGHT, m = MOON_WEIGHT / TOTAL_WEIGHT;
   let expectation = w ** 5 * 1000;
@@ -159,6 +203,22 @@ test('analytical RTP is 98.00% including all bonuses and recursive free spins', 
     }
   }
   assert.ok(Math.abs(math.lineReturn - expectation) < 1e-12);
+});
+
+test('enumerating all 6^7 star-ticket sequences verifies match-three win probabilities', () => {
+  const winners = { mini: 0n, minor: 0n, major: 0n };
+  for (let sequence = 0; sequence < 6 ** 7; sequence++) {
+    const counts = { mini: 0, minor: 0, major: 0 };
+    let remainder = sequence;
+    for (let pick = 0; pick < 7; pick++) {
+      const ticket = remainder % 6;
+      remainder = Math.floor(remainder / 6);
+      const tier = ticket < 3 ? 'mini' : ticket < 5 ? 'minor' : 'major';
+      if (++counts[tier] === 3) { winners[tier]++; break; }
+    }
+  }
+  assert.deepEqual(winners, analyzeStarMatch().winners);
+  assert.equal(winners.mini + winners.minor + winners.major, 279936n);
 });
 
 test('seeded random draws exercise all 14 symbols and all session settlement paths', () => {
@@ -174,7 +234,11 @@ test('seeded random draws exercise all 14 symbols and all session settlement pat
     const { record, session: next } = settleSpin(session, board, i, fixedDeck);
     assert.equal(next.balance, before - (record.free ? 0 : record.bet * record.denomination) + record.payout * record.denomination);
     session = next;
-    if (session.bonus) { bonuses++; session = collectBonus(chooseBonus(session, ZODIAC[i % 12].id)); }
+    if (session.bonus) {
+      bonuses++; session = chooseBonus(session, ZODIAC[i % 12].id);
+      for (let star = 0; star < 7; star++) session = revealBonusStar(session, star);
+      session = collectBonus(session);
+    }
   }
   assert.equal(seen.size, 14);
   assert.ok(bonuses > 0);
