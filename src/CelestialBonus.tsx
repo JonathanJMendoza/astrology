@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Sparkles, Star, Volume2, VolumeX } from 'lucide-react';
+import { RotateCw, Sparkles, Star, Volume2, VolumeX, X } from 'lucide-react';
 import { MATCH_TIERS, TIERS, ZODIAC, bonusCounts, money, type PendingBonus, type ZodiacId, type TierId } from './game';
 import { CelestialWheel } from './Symbol';
 import { CONSTELLATIONS } from './constellations';
@@ -22,9 +22,10 @@ function CelestialSky() {
   </svg>;
 }
 
-export default function CelestialBonus({ bonus, freeSpins, sound, onSound, onChoose, onReveal, onCollect }: {
+export default function CelestialBonus({ bonus, freeSpins, sound, onSound, onChoose, onReveal, onCollect, demo }: {
   bonus: PendingBonus; freeSpins: number; sound: boolean; onSound: () => void;
   onChoose: (sign: ZodiacId) => void; onReveal: (index: number) => void; onCollect: () => void;
+  demo?: { onExit: () => void; onReplay: () => void };
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const collect = useRef<HTMLButtonElement>(null);
@@ -37,15 +38,23 @@ export default function CelestialBonus({ bonus, freeSpins, sound, onSound, onCho
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const overflow = document.body.style.overflow;
+    const element = dialog.current;
     document.body.style.overflow = 'hidden';
-    dialog.current?.showModal();
-    return () => { document.body.style.overflow = overflow; previous?.focus(); };
+    element?.showModal();
+    return () => { element?.close(); document.body.style.overflow = overflow; previous?.focus(); };
   }, []);
-  useEffect(() => { if (tier) collect.current?.focus(); else if (selected) mapTitle.current?.focus({ preventScroll: true }); }, [tier, selected]);
+  useEffect(() => {
+    if (tier) collect.current?.focus();
+    else {
+      mapTitle.current?.focus({ preventScroll: true });
+      if (!selected) dialog.current?.scrollTo({ top: 0 });
+    }
+  }, [tier, selected]);
 
-  return <dialog ref={dialog} className={`celestial-bonus ${tier ? 'revealed' : ''}`} onCancel={event => event.preventDefault()} aria-labelledby="bonus-title" style={{ '--prize-color': tier?.color ?? '#e4c789' } as React.CSSProperties}>
+  return <dialog ref={dialog} className={`celestial-bonus ${tier ? 'revealed' : ''} ${demo ? 'demo-bonus' : ''}`} onCancel={event => { event.preventDefault(); demo?.onExit(); }} aria-labelledby="bonus-title" style={{ '--prize-color': tier?.color ?? '#e4c789' } as React.CSSProperties}>
     <Starfield bright /><CelestialSky /><CelestialWheel className="bonus-wheel" />
-    <button className="icon-button bonus-sound" aria-label={sound ? 'Mute bonus sound' : 'Enable bonus sound'} onClick={onSound}>{sound ? <Volume2 /> : <VolumeX />}</button>
+    {demo && <><span className="bonus-demo-label">BONUS DEMO <span>{money(bonus.bet * bonus.denomination)} BET</span></span><button className="icon-button bonus-exit" aria-label="Exit bonus demo" title="Exit bonus demo" onClick={demo.onExit}><X /></button></>}
+    <button className="icon-button bonus-sound" aria-label={sound ? 'Mute bonus sound' : 'Enable bonus sound'} title={sound ? 'Mute bonus sound' : 'Enable bonus sound'} onClick={onSound}>{sound ? <Volume2 /> : <VolumeX />}</button>
     <div className="bonus-content">
       <header className="celestial-heading"><span className="edition"><Sparkles size={14} />THE CELESTIALS HAVE ALIGNED<Sparkles size={14} /></span>
         <h2 id="bonus-title" ref={mapTitle} tabIndex={-1}>{tier ? tier.celestial : selected ? `${selected.name} awaits` : 'Choose your constellation'}</h2>
@@ -68,8 +77,8 @@ export default function CelestialBonus({ bonus, freeSpins, sound, onSound, onCho
           </button>;
         })}
       </div>}
-      <div className="bonus-outcome" aria-live="polite" aria-atomic="true">{tier ? <><span className="prize-label">{tier.name.toUpperCase()} BONUS</span><strong data-testid="bonus-amount">{money(tier.multiplier * bonus.bet * bonus.denomination)}</strong><span>+ {freeSpins} FREE SPINS IN YOUR ORBIT</span></> : selected ? <><span className="last-star-result">{lastStar !== undefined ? `${TIERS[bonus.prizes[lastStar]].name} revealed` : 'Your constellation is ready'}</span><small>Match three of a prize to win. Choose another star.</small></> : <><Sparkles size={22} /><span>YOUR FORTUNE AWAITS</span><small>Choose a constellation, then match three prizes in its stars.</small></>}</div>
-      {tier && <button className="primary-button collect-bonus" ref={collect} onClick={onCollect}>Collect & continue<Sparkles size={17} /></button>}
+      <div className="bonus-outcome" aria-live="polite" aria-atomic="true">{tier ? <><span className="prize-label">{tier.name.toUpperCase()} {demo ? 'DEMO WIN' : 'BONUS'}</span><strong data-testid="bonus-amount">{money(tier.multiplier * bonus.bet * bonus.denomination)}</strong><span>{demo ? 'BALANCE UNCHANGED' : `+ ${freeSpins} FREE SPINS IN YOUR ORBIT`}</span></> : selected ? <><span className="last-star-result">{lastStar !== undefined ? `${TIERS[bonus.prizes[lastStar]].name} revealed` : 'Your constellation is ready'}</span><small>Match three of a prize to win. Choose another star.</small></> : <><Sparkles size={22} /><span>YOUR FORTUNE AWAITS</span><small>Choose a constellation, then match three prizes in its stars.</small></>}</div>
+      {tier && <button className="primary-button collect-bonus" ref={collect} onClick={demo ? demo.onReplay : onCollect}>{demo ? <><RotateCw size={17} />Play demo again</> : <>Collect & continue<Sparkles size={17} /></>}</button>}
     </div>
   </dialog>;
 }

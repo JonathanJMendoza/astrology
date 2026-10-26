@@ -32,6 +32,7 @@ test('12 signs, all wager settings, sound toggle, accounting, paytable and histo
   await page.screenshot({ path: testInfo.outputPath('machine.png'), fullPage: true });
   await page.getByRole('button', { name: 'Spin', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Spinning', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Bonus demo', exact: true })).toBeDisabled();
   await expect(page.getByRole('combobox', { name: 'Denomination' })).toBeDisabled();
   await expect(page.locator('.reels')).toHaveAttribute('aria-busy', 'false');
   let data = await stored(page);
@@ -47,7 +48,7 @@ test('12 signs, all wager settings, sound toggle, accounting, paytable and histo
     data = await stored(page);
   }
   await page.getByRole('button', { name: 'Paylines', exact: true }).click();
-  await expect(page.locator('.payline-example')).toHaveCount(10);
+  await expect(page.locator('.payline-example')).toHaveCount(20);
   await page.getByRole('tab', { name: 'Symbol payouts' }).click();
   await expect(page.locator('.pay-table tbody tr')).toHaveCount(13);
   await expect(page.locator('.rtp-note')).toContainText('98.00% theoretical RTP');
@@ -58,6 +59,109 @@ test('12 signs, all wager settings, sound toggle, accounting, paytable and histo
   await page.reload();
   expect((await stored(page)).balance).toBe(data.balance);
   expect(errors).toEqual([]);
+});
+
+test('twenty-line paytable and bonus awards match the selected wager', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: testInfo.project.name === 'mobile' ? 320 : 1440, height: 900 });
+  await page.goto('/');
+  await expect(page.locator('.active-lines')).toHaveText('20 ACTIVE PAYLINES');
+  await page.getByRole('combobox', { name: 'Bet credits' }).selectOption('250');
+  await page.getByRole('combobox', { name: 'Denomination' }).selectOption('200');
+  await page.getByRole('button', { name: 'Paylines', exact: true }).click();
+  await expect(page.getByRole('tab', { name: '20 paylines' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.payline-example')).toHaveCount(20);
+  await page.screenshot({ path: testInfo.outputPath('twenty-paylines.png'), fullPage: true });
+  await page.getByRole('tab', { name: 'Symbol payouts' }).click();
+  await expect(page.locator('.symbol-pay-table tr').filter({ hasText: 'Aries' }).locator('td')).toHaveText(['Aries', '$500.00', '$2,500.00', '$12,500.00']);
+  await expect(page.locator('.symbol-pay-table tr').filter({ hasText: 'Sun' }).locator('td')).toHaveText(['SunWILD', '$1,250.00', '$6,250.00', '$25,000.00']);
+  await page.getByRole('tab', { name: 'Symbol payouts' }).focus();
+  await page.keyboard.press('End');
+  await expect(page.getByRole('tab', { name: 'Bonus payouts' })).toBeFocused();
+  await expect(page.getByRole('tabpanel')).toContainText('$10,000.00');
+  await expect(page.locator('.bonus-pay-table').first().locator('tbody tr')).toHaveText(['Mini2×$1,000.0050%', 'Minor5×$2,500.0033.33%', 'Major20×$10,000.0016.67%']);
+  await expect(page.locator('.bonus-pay-table').last().locator('tbody tr')).toHaveText(['35Star match', '48Star match', '5+12Star match']);
+  expect(await page.getByRole('dialog').evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('bonus-paytable.png'), fullPage: true });
+  const before = await stored(page);
+  await page.getByRole('button', { name: 'Try bonus demo', exact: true }).click();
+  await expect(page.locator('.demo-bonus')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Exit bonus demo' }).click();
+  expect(await stored(page)).toEqual(before);
+});
+
+test('bonus demo works with an empty wallet, replays, and never saves awards', async ({ page }, testInfo) => {
+  const initial = { ...newSession(), balance: 0, bet: 250, denomination: 200 };
+  await seed(page, initial);
+  await predictableReels(page);
+  await page.goto('/');
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const board = await page.locator('.reels').getAttribute('aria-label');
+  const trigger = page.getByRole('button', { name: 'Bonus demo', exact: true });
+  await trigger.click();
+  await expect(page.locator('.bonus-demo-label')).toContainText('$500.00 BET');
+  await expect(page.locator('.constellation-card')).toHaveCount(12);
+  await page.getByRole('button', { name: 'Choose Aries', exact: true }).click();
+  await page.keyboard.press('Space');
+  for (let i = 1; i <= 3; i++) await page.getByRole('button', { name: new RegExp(`^Reveal star ${i},`) }).click();
+  await expect(page.getByTestId('bonus-amount')).toHaveText('$1,000.00');
+  await expect(page.locator('.bonus-outcome')).toContainText('BALANCE UNCHANGED');
+  await expect(page.getByRole('button', { name: 'Collect & continue' })).toHaveCount(0);
+  expect(await stored(page)).toEqual(initial);
+  await page.evaluate(() => document.fonts.ready);
+  await page.screenshot({ path: testInfo.outputPath('demo-win.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Play demo again' }).click();
+  await expect(page.locator('.constellation-card')).toHaveCount(12);
+  await expect(page.getByTestId('bonus-amount')).toHaveCount(0);
+  await expect(page.getByLabel('Mini: 0 of 3 matched')).toBeVisible();
+  await page.getByRole('button', { name: 'Choose Pisces', exact: true }).click();
+  await page.getByRole('button', { name: /^Reveal star 1,/ }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  expect(await page.locator('.reels').getAttribute('aria-label')).toBe(board);
+  expect(await stored(page)).toEqual(initial);
+  await trigger.click();
+  await page.getByRole('button', { name: 'Choose Leo', exact: true }).click();
+  await page.getByRole('button', { name: /^Reveal star 1,/ }).click();
+  await page.reload();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(await stored(page)).toEqual(initial);
+  expect(errors).toEqual([]);
+});
+
+test('bonus demo preserves pending free spins and their locked wager', async ({ page }) => {
+  const initial = { ...newSession(), bet: 250, denomination: 200, freeSpins: 5, bonusBet: 50, bonusDenomination: 2 };
+  await seed(page, initial);
+  await predictableReels(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Bonus demo', exact: true }).click();
+  await expect(page.locator('.bonus-demo-label')).toContainText('$1.00 BET');
+  await page.getByRole('button', { name: 'Choose Leo', exact: true }).click();
+  for (let i = 1; i <= 3; i++) await page.getByRole('button', { name: new RegExp(`^Reveal star ${i},`) }).click();
+  await expect(page.getByTestId('bonus-amount')).toHaveText('$2.00');
+  await page.getByRole('button', { name: 'Exit bonus demo' }).click();
+  expect(await stored(page)).toEqual(initial);
+  await expect(page.getByRole('button', { name: 'Free spin', exact: true })).toBeEnabled();
+  await expect(page.getByRole('combobox', { name: 'Bet credits' })).toBeDisabled();
+});
+
+test('starting a bonus demo cancels autoplay and does not resume it on exit', async ({ page }) => {
+  await predictableReels(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'AUTO SPIN', exact: true }).click();
+  await page.getByRole('menuitem', { name: '10 spins', exact: true }).click();
+  const trigger = page.getByRole('button', { name: 'Bonus demo', exact: true });
+  await expect(trigger).toBeEnabled();
+  await trigger.click();
+  const before = await stored(page);
+  await page.waitForTimeout(1100);
+  expect(await stored(page)).toEqual(before);
+  await page.getByRole('button', { name: 'Exit bonus demo' }).click();
+  await page.waitForTimeout(1100);
+  expect(await stored(page)).toEqual(before);
+  await expect(page.getByRole('button', { name: 'Stop autoplay' })).toHaveCount(0);
 });
 
 test('constellation selection, individual star reveals, and first match survive refresh', async ({ page }, testInfo) => {

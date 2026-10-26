@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Random, MersenneTwister19937 } from 'random-js';
-import { BETS, DENOMINATIONS, INITIAL_BOARD, PAYLINES, SYMBOLS, ZODIAC, chooseBonus, collectBonus, drawBoard, drawBonusDeck, drawSymbol, evaluateBoard, evaluateLine, newSession, restoreSession, revealBonusStar, settleSpin, type Board, type SymbolId, type TierId } from './game';
+import { BETS, DENOMINATIONS, INITIAL_BOARD, PAYLINES, SYMBOLS, TIERS, ZODIAC, chooseBonus, collectBonus, drawBoard, drawBonusDeck, drawSymbol, evaluateBoard, evaluateLine, newBonusDemo, newSession, restoreSession, revealBonusStar, settleSpin, type Board, type SymbolId, type TierId } from './game';
 import { LEGACY_BONUS_DECK, MATCH_TIERS, MOON_WEIGHT, SIGN_PAYS, TOTAL_WEIGHT, WILD_PAYS, WILD_WEIGHT, ZODIAC_WEIGHT } from './rules';
 import { analyzeRtp, analyzeStarMatch } from '../scripts/rtp';
 import { CONSTELLATIONS, MAX_CONSTELLATION_STARS } from './constellations';
@@ -44,13 +44,57 @@ test('every sign pays at 3, 4, and 5 matches; wilds substitute', () => {
   assert.equal(evaluateLine(['aries', 'sun', 'moon', 'aries', 'aries']), undefined);
 });
 
-test('all ten paylines pay once and all-wilds pay 1000x total bet', () => {
+test('all twenty unique paylines pay once and all-wilds pay 1000x total bet', () => {
+  assert.equal(PAYLINES.length, 20);
+  assert.equal(new Set(PAYLINES.map(line => line.join())).size, 20);
+  for (const line of PAYLINES) {
+    assert.equal(line.length, 5);
+    assert.ok(line.every(row => row >= 0 && row <= 2));
+  }
   assert.equal(evaluateBoard(sunBoard, 100).payout, 100000);
-  assert.equal(evaluateBoard(sunBoard, 100).wins.length, 10);
+  assert.equal(evaluateBoard(sunBoard, 100).wins.length, 20);
   PAYLINES.forEach((rows, line) => {
     const board: Board = Array.from({ length: 5 }, (_, reel) => Array.from({ length: 3 }, (_, row) => rows[reel] === row ? 'aquarius' : 'moon'));
-    assert.deepEqual(evaluateBoard(board, 50).wins.find(win => win.line === line), { line, symbol: 'aquarius', count: 5, payout: 2500 });
+    assert.deepEqual(evaluateBoard(board, 50).wins.find(win => win.line === line), { line, symbol: 'aquarius', count: 5, payout: 1250 });
   });
+});
+
+test('all line awards remain integer credits at every supported wager and denomination', () => {
+  for (const bet of [...BETS, 10, 20]) for (const denomination of DENOMINATIONS) {
+    for (const symbol of SYMBOLS) for (const payout of symbol.pays) {
+      const credits = payout * bet / PAYLINES.length;
+      assert.ok(Number.isSafeInteger(credits));
+      assert.ok(Number.isSafeInteger(credits * denomination));
+    }
+  }
+});
+
+test('new line wins reload correctly and old ten-line settlements keep their payouts', () => {
+  const current = settleSpin(newSession(), sunBoard, 123).session;
+  assert.equal(current.history[0].wins.at(-1)?.line, 19);
+  assert.deepEqual(restoreSession(JSON.stringify(current)), current);
+  const old = { ...current, history: [{ ...current.history[0], wins: current.history[0].wins.slice(0, 10).map(win => ({ ...win, payout: win.payout * 2 })) }] };
+  assert.deepEqual(restoreSession(JSON.stringify(old)), old);
+});
+
+test('bonus demos use normal awards without creating a wager, history or free spins', () => {
+  for (const bet of BETS) for (const denomination of DENOMINATIONS) for (const tier of MATCH_TIERS) {
+    const original = newBonusDemo(bet, denomination, () => Array(MAX_CONSTELLATION_STARS).fill(tier));
+    let played = chooseBonus(original, 'leo');
+    assert.equal(played.balance, 0);
+    for (let index = 0; index < 3; index++) played = revealBonusStar(played, index);
+    assert.equal(played.bonus?.winner, tier);
+    assert.equal(played.balance, bet * denomination * TIERS[tier].multiplier);
+    assert.equal(revealBonusStar(played, 3), played);
+    assert.equal(played.freeSpins, 0);
+    assert.deepEqual(played.history, []);
+    assert.equal(original.bonus?.selectedSign, null);
+    assert.equal(original.balance, 0);
+    assert.equal(newBonusDemo(bet, denomination, fixedDeck).bonus?.winner, null);
+  }
+  assert.throws(() => newBonusDemo(0, 1));
+  assert.throws(() => newBonusDemo(100, 3));
+  assert.throws(() => newBonusDemo(100, 1, () => []));
 });
 
 test('all 40 wager and denomination combinations debit and pay exact integer cents', () => {

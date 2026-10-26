@@ -1,6 +1,6 @@
 # Astral Fortune
 
-An astrology-themed slot game built with React, TypeScript, and Vite. Includes all 12 zodiac signs, five reels, ten paylines, moving celestial backgrounds, casino-style synthesized audio, Sun wilds, Moon free spins, and a full-screen constellation match-three bonus. It uses virtual dollars only; there are no purchases, deposits, withdrawals, or cash prizes.
+An astrology-themed slot game built with React, TypeScript, and Vite. Includes all 12 zodiac signs, five reels, twenty paylines, moving celestial backgrounds, casino-style synthesized audio, Sun wilds, Moon free spins, and a full-screen constellation match-three bonus with an on-demand demo. It uses virtual dollars only; there are no purchases, deposits, withdrawals, or cash prizes.
 
 ## Development
 
@@ -34,7 +34,7 @@ Vite uses relative asset paths, so the build works under `/astrology/` as well a
 
 ## Game Rules
 
-- The total bet is divided equally among all ten active paylines.
+- The total bet is divided equally among all twenty active paylines, including straight, diagonal, and zigzag patterns. The original ten patterns remain in their original positions. The expanded line set keeps the total wager and theoretical RTP unchanged; each line now receives 1/20 of the wager, so its payout is half the former ten-line amount. Previously settled wins keep their original payouts.
 - Choose 50, 100, 150, 200, or 250 credits. Denominations are $0.01, $0.02, $0.05, $0.10, $0.25, $0.50, $1.00, or $2.00 per credit. Total wager = credits times denomination. The wallet uses integer cents and keeps its dollar value when denomination changes.
 - Three or more consecutive matching symbols pay from the leftmost reel. Only the highest payout per line is awarded; separate line wins add together.
 - Sun symbols are wild and substitute for zodiac symbols, but not Moon scatters. A full screen of Suns pays 1,000 times the total bet.
@@ -47,6 +47,8 @@ Vite uses relative asset paths, so the build works under `/astrology/` as well a
 - Sound starts after a user gesture and can be muted immediately. Mechanical reel ticks, reel stops, coin chimes, win melodies, and bonus fanfares are synthesized locally without remote audio requests.
 - Stars drift and twinkle during normal play and bonus play, with occasional shooting stars and gently moving celestial artwork. Reduced-motion preferences produce a still background. Canvas animation pauses while the page is hidden.
 - Constellations use distinct, stylized asterism diagrams with named constellation members. These are game illustrations, not coordinate-accurate sky-navigation charts.
+- **Bonus demo**, below the reels or in the bonus paytable, opens the constellation picks immediately at the current wager. It uses the same random star distribution and match-three rules as normal play, but its session is memory-only. Demo prizes never change the saved balance, spin history, or free spins. Replay creates fresh hidden rewards; Exit or Escape returns to the machine. Reload discards the demo. Starting it cancels autoplay, and it is unavailable during a spin or a normal bonus.
+- The paytable has separate symbol, twenty-payline, and bonus views. Symbol amounts are per winning line; bonus amounts are multiples of the total wager. The bonus view includes Mini/Minor/Major per-star probabilities and Moon free-spin awards.
 
 The game is a browser demo with locally editable state, not a real-money gambling system. It has no server-side ledger or certified gambling RNG.
 

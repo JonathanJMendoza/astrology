@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Check, ChevronRight, CircleHelp, Coins, Diamond, History, Info, Maximize2, Moon, Plus, RotateCw, Sparkles, Square, Volume2, VolumeX, X, Zap } from 'lucide-react';
-import { BETS, DENOMINATIONS, INITIAL_BOARD, LEGACY_STORAGE_KEY, MATCH_TIERS, PAYLINES, PREVIOUS_STORAGE_KEY, REFILL_CENTS, STORAGE_KEY, SYMBOLS, TIERS, chooseBonus, collectBonus, drawBoard, money, newSession, restoreSession, revealBonusStar, settleSpin, totalWin, type Board, type Session, type SpinRecord, type ZodiacId } from './game';
+import { ArrowDownLeft, ArrowUpRight, Check, ChevronRight, CircleHelp, Coins, Diamond, History, Info, Maximize2, Moon, Play, Plus, RotateCw, Sparkles, Square, Volume2, VolumeX, X, Zap } from 'lucide-react';
+import { BETS, DENOMINATIONS, INITIAL_BOARD, LEGACY_STORAGE_KEY, PAYLINES, PREVIOUS_STORAGE_KEY, REFILL_CENTS, STORAGE_KEY, TIERS, chooseBonus, collectBonus, drawBoard, money, newSession, restoreSession, revealBonusStar, settleSpin, totalWin, type Board, type Session, type SpinRecord, type ZodiacId } from './game';
 import { CelestialWheel, ZodiacSymbol } from './Symbol';
 import { playTone, setAudioEnabled, stopReels } from './audio';
 import CelestialBonus from './CelestialBonus';
 import Starfield from './Starfield';
+import BonusDemo from './BonusDemo';
+import Paytable, { type PaytableTab } from './Paytable';
 
 const format = (n: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n);
 const compactMoney = (cents: number) => cents < 100000 ? money(cents) : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 2 }).format(cents / 100);
@@ -24,8 +26,9 @@ function Modal({ title, eyebrow, onClose, children, wide = false }: { title: str
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
-    ref.current?.showModal();
-    return () => previous?.focus();
+    const element = ref.current;
+    element?.showModal();
+    return () => { element?.close(); previous?.focus(); };
   }, []);
   return <dialog ref={ref} className={`modal ${wide ? 'wide' : ''}`} onCancel={onClose} onClick={event => { if (event.target === event.currentTarget) onClose(); }} aria-labelledby="modal-title">
     <div className="modal-inner">
@@ -33,37 +36,6 @@ function Modal({ title, eyebrow, onClose, children, wide = false }: { title: str
       {children}
     </div>
   </dialog>;
-}
-
-function Paytable({ bet, denomination, initialTab }: { bet: number; denomination: number; initialTab: 'symbols' | 'lines' }) {
-  const [tab, setTab] = useState(initialTab);
-  return <>
-    <div className="tabs" role="tablist" aria-label="Paytable views">
-      <button role="tab" aria-selected={tab === 'symbols'} onClick={() => setTab('symbols')}>Symbol payouts</button>
-      <button role="tab" aria-selected={tab === 'lines'} onClick={() => setTab('lines')}>10 paylines</button>
-    </div>
-    {tab === 'symbols' ? <>
-      <div className="table-caption"><span>{bet} credits × {money(denomination)} <strong>{money(bet * denomination)}</strong></span><span>Payouts in virtual dollars</span></div>
-      <table className="pay-table"><thead><tr><th>Symbol</th><th>3</th><th>4</th><th>5</th></tr></thead><tbody>
-        {[...SYMBOLS].filter(symbol => symbol.id !== 'moon').reverse().map(symbol => <tr key={symbol.id}>
-          <td><ZodiacSymbol id={symbol.id} small label={false} /><span>{symbol.name}{symbol.id === 'sun' && <small>WILD</small>}</span></td>
-          {symbol.pays.map(payout => <td key={payout}>{money(payout * bet * denomination / 10)}</td>)}
-        </tr>)}
-      </tbody></table>
-      <div className="moon-rule"><ZodiacSymbol id="moon" small label={false} /><div><h3>Constellation match + free spins</h3><p>3 moons: 5 spins · 4 moons: 8 spins · 5+ moons: 12 spins</p></div></div>
-      <div className="bonus-odds">{MATCH_TIERS.map(id => <div key={id}><strong>{TIERS[id].name}</strong><span>{TIERS[id].multiplier}× total bet</span><small>{id === 'mini' ? '50%' : id === 'minor' ? '33.33%' : '16.67%'} per star</small></div>)}</div>
-      <p className="rules-copy">Every Moon trigger also awards a constellation bonus. Choose a constellation, then reveal its stars. The first prize revealed three times wins; a winner is guaranteed within seven picks. Each star independently hides Mini (1/2), Minor (1/3), or Major (1/6). Every constellation has equal odds, and its rewards are saved before your first pick.</p>
-      <p className="rules-copy">Bonuses can retrigger on free spins. The triggering credits and denomination stay locked throughout free spins.</p>
-      <p className="rules-copy">Matches pay from the leftmost reel. The Sun substitutes for every sign, but not the Moon. Only the highest win per line pays; separate lines add together. All signs have equal reel odds and payouts.</p>
-      <div className="rtp-note"><strong>98.00% theoretical RTP · 2.00% house edge</strong><p>Includes line wins, free spins, retriggers, and celestial picks. Applies to every wager and denomination over long-run play, not to each session.</p></div>
-    </> : <>
-      <div className="payline-grid">{PAYLINES.map((rows, i) => <div className="payline-example" key={i}><span>{String(i + 1).padStart(2, '0')}</span><svg viewBox="0 0 150 90" aria-label={`Payline ${i + 1}`}>
-        {Array.from({ length: 15 }, (_, j) => <rect key={j} x={(j % 5) * 30 + 2} y={Math.floor(j / 5) * 30 + 2} width="26" height="26" rx="2" />)}
-        <polyline points={rows.map((row, reel) => `${reel * 30 + 15},${row * 30 + 15}`).join(' ')} />
-      </svg></div>)}</div>
-      <p className="rules-copy">All 10 paylines are always active. Each receives one tenth of your total bet. A line needs at least three consecutive matching symbols, starting on the leftmost reel.</p>
-    </>}
-  </>;
 }
 
 function HistoryPanel({ records }: { records: SpinRecord[] }) {
@@ -84,7 +56,8 @@ export default function App() {
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [result, setResult] = useState<SpinRecord | null>(() => session.history[0] ?? null);
   const [panel, setPanel] = useState<Panel>(null);
-  const [payTab, setPayTab] = useState<'symbols' | 'lines'>('symbols');
+  const [payTab, setPayTab] = useState<PaytableTab>('symbols');
+  const [demoOpen, setDemoOpen] = useState(false);
   const [sound, setSound] = useState(() => readPreference('sound', true));
   const soundRef = useRef(sound);
   soundRef.current = sound;
@@ -98,7 +71,7 @@ export default function App() {
   const effectiveBet = session.freeSpins > 0 ? session.bonusBet : session.bet;
   const effectiveDenomination = session.freeSpins > 0 ? session.bonusDenomination : session.denomination;
   const canSpin = session.freeSpins > 0 || session.balance >= session.bet * session.denomination;
-  const locked = spinning || autoRemaining > 0 || !!session.bonus;
+  const locked = spinning || autoRemaining > 0 || !!session.bonus || demoOpen;
 
   const persist = useCallback((next: Session) => {
     sessionRef.current = next;
@@ -123,7 +96,7 @@ export default function App() {
   }, []);
 
   const spin = useCallback(() => {
-    if (busy.current) return;
+    if (busy.current || demoOpen) return;
     const current = sessionRef.current;
     if (current.bonus) return;
     if (!current.freeSpins && current.balance < current.bet * current.denomination) { setAutoRemaining(0); setPanel('wallet'); return; }
@@ -160,26 +133,26 @@ export default function App() {
         }
       }, (quick ? 150 : 750) + reel * (quick ? 75 : 200)));
     }
-  }, [persist, turbo]);
+  }, [persist, turbo, demoOpen]);
 
   useEffect(() => {
-    if (!autoRemaining || spinning || panel || session.bonus) return;
+    if (!autoRemaining || spinning || panel || session.bonus || demoOpen) return;
     const timeout = setTimeout(spin, turbo ? 350 : 900);
     return () => clearTimeout(timeout);
-  }, [autoRemaining, spinning, spin, turbo, panel, session.bonus]);
+  }, [autoRemaining, spinning, spin, turbo, panel, session.bonus, demoOpen]);
 
   useEffect(() => {
     const keyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
       if (event.code === 'Escape') setAutoMenu(false);
-      if (event.code === 'Space' && !event.repeat && !panel && !session.bonus && !autoMenu && !autoRemaining &&
+      if (event.code === 'Space' && !event.repeat && !panel && !session.bonus && !demoOpen && !autoMenu && !autoRemaining &&
           !['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'A'].includes(target.tagName) && !target.isContentEditable) {
         event.preventDefault(); spin();
       }
     };
     document.addEventListener('keydown', keyDown);
     return () => document.removeEventListener('keydown', keyDown);
-  }, [spin, panel, autoMenu, autoRemaining, session.bonus]);
+  }, [spin, panel, autoMenu, autoRemaining, session.bonus, demoOpen]);
 
   function changeWager(field: 'bet' | 'denomination', value: number) {
     const allowed: readonly number[] = field === 'bet' ? BETS : DENOMINATIONS;
@@ -206,8 +179,13 @@ export default function App() {
     const next = collectBonus(sessionRef.current);
     persist(next); setSession(next);
   }
-  function openPanel(value: Panel, tab: 'symbols' | 'lines' = 'symbols') {
+  function openPanel(value: Panel, tab: PaytableTab = 'symbols') {
     setAutoRemaining(0); setAutoMenu(false); setPayTab(tab); setPanel(value);
+  }
+  function startDemo() {
+    if (busy.current || sessionRef.current.bonus) return;
+    setAutoRemaining(0); setAutoMenu(false); setPanel(null); setDemoOpen(true);
+    playTone('bonus', soundRef.current);
   }
   function refill() {
     if (busy.current) return;
@@ -239,7 +217,7 @@ export default function App() {
       </section>
 
       <section className={`machine ${session.freeSpins ? 'bonus-mode' : ''}`} ref={gameRef} aria-label="Astral Fortune slot machine">
-        <div className="machine-topline"><span className="active-lines"><i />10 ACTIVE PAYLINES</span><div className="jackpot-label"><Sparkles size={13} /><span>WRITTEN IN THE STARS</span><Sparkles size={13} /></div><button className="max-win" onClick={() => openPanel('paytable')}>UP TO <strong>1,000×</strong><Info size={13} /></button></div>
+        <div className="machine-topline"><span className="active-lines"><i />{PAYLINES.length} ACTIVE PAYLINES</span><div className="jackpot-label"><Sparkles size={13} /><span>WRITTEN IN THE STARS</span><Sparkles size={13} /></div><button className="max-win" onClick={() => openPanel('paytable')}>UP TO <strong>1,000×</strong><Info size={13} /></button></div>
         <div className="cabinet">
           <span className="corner corner-tl" aria-hidden="true" /><span className="corner corner-tr" aria-hidden="true" /><span className="corner corner-bl" aria-hidden="true" /><span className="corner corner-br" aria-hidden="true" />
           <div className="bonus-strip"><span className="bonus-name"><Moon size={15} />CELESTIAL BONUS</span><div className="bonus-condition">{session.freeSpins ? <><Sparkles size={14} /><strong>{session.freeSpins} FREE {session.freeSpins === 1 ? 'SPIN' : 'SPINS'}</strong><span>IN YOUR ORBIT</span></> : <><span className="mini-moons"><Moon /><Moon /><Moon /></span><span>3+ MOONS: STAR MATCH + FREE SPINS</span></>}</div></div>
@@ -281,7 +259,7 @@ export default function App() {
             </div>
           </div>
         </div>
-        <div className="machine-toolbar"><div><button onClick={() => openPanel('paytable', 'lines')}><span className="paylines-icon" aria-hidden="true">≋</span>Paylines</button><span className="toolbar-divider" /><button onClick={() => openPanel('paytable')}><Info size={14} />Paytable</button></div><span className="machine-id">EST. IN THE COSMOS</span><div><IconButton label={turbo ? 'Disable quick spin' : 'Enable quick spin'} active={turbo} aria-pressed={turbo} onClick={() => setTurbo(!turbo)}><Zap size={15} fill={turbo ? 'currentColor' : 'none'} /></IconButton><IconButton label="Spin history" onClick={() => openPanel('history')}><History size={16} /></IconButton><IconButton label="Toggle fullscreen" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => setError('Fullscreen is unavailable in this browser.')); else void gameRef.current?.requestFullscreen?.().catch(() => setError('Fullscreen is unavailable in this browser.')); }}><Maximize2 size={15} /></IconButton></div></div>
+        <div className="machine-toolbar"><div><button onClick={() => openPanel('paytable', 'lines')}><span className="paylines-icon" aria-hidden="true">≋</span>Paylines</button><span className="toolbar-divider" /><button onClick={() => openPanel('paytable')}><Info size={14} />Paytable</button></div><button className="demo-trigger" onClick={startDemo} disabled={spinning || !!session.bonus}><Play size={14} />Bonus demo</button><div><IconButton label={turbo ? 'Disable quick spin' : 'Enable quick spin'} active={turbo} aria-pressed={turbo} onClick={() => setTurbo(!turbo)}><Zap size={15} fill={turbo ? 'currentColor' : 'none'} /></IconButton><IconButton label="Spin history" onClick={() => openPanel('history')}><History size={16} /></IconButton><IconButton label="Toggle fullscreen" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => setError('Fullscreen is unavailable in this browser.')); else void gameRef.current?.requestFullscreen?.().catch(() => setError('Fullscreen is unavailable in this browser.')); }}><Maximize2 size={15} /></IconButton></div></div>
       </section>
 
       <section className="celestial-notes" aria-label="Celestial rewards">
@@ -296,11 +274,12 @@ export default function App() {
     <footer className="site-footer"><span><Sparkles size={12} /> ASTRAL FORTUNE</span><p>Made of stardust. Played for fun. <span>No real money. No cash prizes.</span></p><button onClick={() => openPanel('about')}>{storageError ? 'Session not saved' : 'Play for the moment'}<ArrowUpRight size={13} /></button></footer>
 
     {panel && <Modal title={panel === 'paytable' ? 'The stars, decoded.' : panel === 'history' ? 'Your cosmic journey.' : panel === 'wallet' ? 'A fresh constellation.' : 'Welcome to Astral.'} eyebrow={panel === 'paytable' ? 'PAYOUTS & PAYLINES' : panel === 'history' ? 'SPIN HISTORY' : panel === 'wallet' ? 'VIRTUAL CREDIT WALLET' : 'ASTRAL FORTUNE'} onClose={() => setPanel(null)} wide={panel === 'paytable'}>
-      {panel === 'paytable' && <Paytable bet={effectiveBet} denomination={effectiveDenomination} initialTab={payTab} />}
+      {panel === 'paytable' && <Paytable bet={effectiveBet} denomination={effectiveDenomination} initialTab={payTab} onDemo={startDemo} demoDisabled={spinning || !!session.bonus} />}
       {panel === 'history' && <HistoryPanel records={session.history} />}
       {panel === 'wallet' && <div className="wallet-panel"><Coins size={38} strokeWidth={1.2} /><span>YOUR VIRTUAL BALANCE</span><strong>{money(session.balance)}</strong><p>{format(Math.floor(session.balance / effectiveDenomination))} credits at {money(effectiveDenomination)} each. Denomination changes preserve the dollar balance.</p><button className="primary-button" onClick={refill} disabled={spinning || session.balance >= REFILL_CENTS}>{session.balance >= REFILL_CENTS ? <><Check size={18} />Your wallet is full</> : <><Plus size={18} />Refill to $10,000</>}</button><small>Demo dollars only. No purchases or cash value.</small></div>}
       {panel === 'about' && <div className="about-panel"><CelestialWheel /><p>A little escape to the celestial side.</p><p>All 12 zodiac signs share equal odds. Three or more Moons unlock a constellation match and free spins. Choose a constellation, then reveal stars until three Mini, Minor, or Major prizes match. Your first match wins. Free spins retain the triggering credits and denomination.</p><p>Theoretical RTP is 98.00%, including all bonuses and retriggers: a 2.00% house edge over long-run play. It does not guarantee a return for any individual spin or session.</p><p>Dollar amounts are virtual. Credits cannot be purchased, transferred, or redeemed. Your wallet, star reveals, and latest 30 spins are saved in this browser. Autoplay stops at its limit, on a bonus, when you open a panel, or when you stop it.</p><button className="primary-button" onClick={() => setPanel(null)}>Back to the stars<Sparkles size={17} /></button></div>}
     </Modal>}
     {session.bonus && !spinning && <CelestialBonus bonus={session.bonus} freeSpins={session.freeSpins} sound={sound} onSound={() => setSound(!sound)} onChoose={selectBonus} onReveal={revealStar} onCollect={finishBonus} />}
+    {demoOpen && <BonusDemo bet={effectiveBet} denomination={effectiveDenomination} sound={sound} onSound={() => setSound(!sound)} onExit={() => setDemoOpen(false)} />}
   </div>;
 }

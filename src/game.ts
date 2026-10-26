@@ -15,6 +15,9 @@ export const PAYLINES = [
   [1, 1, 1, 1, 1], [0, 0, 0, 0, 0], [2, 2, 2, 2, 2],
   [0, 1, 2, 1, 0], [2, 1, 0, 1, 2], [0, 0, 1, 2, 2],
   [2, 2, 1, 0, 0], [1, 0, 0, 0, 1], [1, 2, 2, 2, 1], [0, 1, 1, 1, 0],
+  [2, 1, 1, 1, 2], [1, 0, 1, 0, 1], [1, 2, 1, 2, 1],
+  [0, 1, 0, 1, 0], [2, 1, 2, 1, 2], [0, 2, 0, 2, 0],
+  [2, 0, 2, 0, 2], [0, 0, 1, 0, 0], [2, 2, 1, 2, 2], [1, 1, 0, 1, 1],
 ] as const;
 export const INITIAL_BOARD: Board = [
   ['aries', 'leo', 'gemini'], ['cancer', 'pisces', 'virgo'],
@@ -73,6 +76,15 @@ export function bonusCounts(bonus: PendingBonus): Record<TierId, number> {
   const counts = { mini: 0, minor: 0, major: 0, grand: 0 };
   for (const index of bonus.revealedStars) counts[bonus.prizes[index]]++;
   return counts;
+}
+
+export function newBonusDemo(bet: number, denomination: number, deckFactory = drawBonusDeck): Session {
+  if (!validBet(bet) || !validDenom(denomination)) throw new Error('Invalid demo wager.');
+  const prizes = deckFactory();
+  if (!validDeck(prizes)) throw new Error('Invalid bonus deck.');
+  // This session stays in memory and is never passed to the saved-game writer.
+  return { ...newSession(), balance: 0, bet, denomination, bonusBet: bet, bonusDenomination: denomination,
+    bonus: { spinId: 'demo', bet, denomination, mode: 'match3', prizes: [...prizes], selectedSign: null, revealedStars: [], winner: null } };
 }
 
 export function evaluateLine(line: readonly SymbolId[]): Omit<LineWin, 'line'> | undefined {
@@ -162,7 +174,7 @@ export function restoreSession(serialized: string | null): Session {
     if (!BETS.includes(data.bet as typeof BETS[number]) || !validDenom(data.denomination) || !validDenom(data.bonusDenomination)) return newSession();
     const history: SpinRecord[] = raw.history.slice(0, 30).filter((r: SpinRecord) => r && validBoard(r.board) && typeof r.id === 'string' &&
       isAmount(r.time) && validBet(r.bet) && typeof r.free === 'boolean' && isAmount(r.payout) && isAmount(r.scatters) && isAmount(r.awardedSpins) &&
-      Array.isArray(r.wins) && r.wins.every(w => w && Number.isInteger(w.line) && w.line >= 0 && w.line < 10 &&
+      Array.isArray(r.wins) && r.wins.every(w => w && Number.isInteger(w.line) && w.line >= 0 && w.line < PAYLINES.length &&
         Number.isInteger(w.count) && w.count >= 3 && w.count <= 5 && isAmount(w.payout) && SYMBOLS.some(s => s.id === w.symbol)) &&
       (legacy || validDenom(r.denomination)) && (!r.bonus || (ZODIAC.some(s => s.id === r.bonus!.sign) &&
         Object.hasOwn(TIERS, r.bonus.tier) && r.bonus.payout === TIERS[r.bonus.tier].multiplier * r.bet)))

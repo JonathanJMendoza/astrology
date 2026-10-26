@@ -12,7 +12,9 @@ Each of the 15 cells is drawn independently using an unbiased `random-js` intege
 | Sun wild | 63,267,942,204 | 50 / 250 / 1,000 |
 | Moon scatter | 30,000,000,000 | No line payout |
 
-The ten active paylines each receive one tenth of the total bet. Only the highest paying interpretation of a line wins; separate lines add. Line correlation changes variance but not the sum's expectation.
+The twenty active paylines each receive one twentieth of the total bet. Only the highest paying interpretation of a line wins; separate lines add. Line correlation changes variance but not the sum's expectation. Every line samples one independent cell from each of the five reels, so each has the same marginal symbol distribution. Summing twenty line expectations, each weighted by 1/20, gives the same expected total line return as the earlier ten-line game. The added patterns change which boards win and how often wins overlap, not the 98% theoretical RTP. Old settled awards are not recalculated.
+
+The on-demand bonus demo uses the same star distribution in an isolated, nonpersistent session. It makes no wager and contributes no awards or free spins to normal play, so it is excluded from the normal game's RTP.
 
 The number of Moon scatters follows Binomial(15, 0.025). Three, four, or five or more Moons grant 5, 8, or 12 free spins, plus a constellation match. Free spins have the same distribution, can retrigger, and preserve the originating wager.
 
