@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Check, ChevronRight, CircleHelp, Coins, Diamond, History, Info, Maximize2, Minus, Moon, Plus, RotateCw, Sparkles, Square, Volume2, VolumeX, X, Zap } from 'lucide-react';
-import { BETS, INITIAL_BOARD, PAYLINES, STORAGE_KEY, SYMBOLS, drawBoard, newSession, restoreSession, settleSpin, type Board, type Session, type SpinRecord } from './game';
+import { ArrowDownLeft, ArrowUpRight, Check, ChevronRight, CircleHelp, Coins, Diamond, History, Info, Maximize2, Moon, Plus, RotateCw, Sparkles, Square, Volume2, VolumeX, X, Zap } from 'lucide-react';
+import { BETS, DENOMINATIONS, INITIAL_BOARD, LEGACY_STORAGE_KEY, PAYLINES, REFILL_CENTS, STORAGE_KEY, SYMBOLS, TIERS, chooseBonus, collectBonus, drawBoard, money, newSession, restoreSession, settleSpin, totalWin, type Board, type Session, type SpinRecord, type ZodiacId } from './game';
 import { CelestialWheel, ZodiacSymbol } from './Symbol';
-import { playTone } from './audio';
+import { playTone, setAudioEnabled, stopReels } from './audio';
+import CelestialBonus from './CelestialBonus';
 
 const format = (n: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n);
-const formatBalance = (n: number) => n < 100000 ? format(n) : new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 0 }).format(n);
+const compactMoney = (cents: number) => cents < 100000 ? money(cents) : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 2 }).format(cents / 100);
 type Panel = 'paytable' | 'history' | 'wallet' | 'about' | null;
 function readSession() {
-  try { return restoreSession(localStorage.getItem(STORAGE_KEY)); } catch { return newSession(); }
+  try { return restoreSession(localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY)); } catch { return newSession(); }
 }
-function readPreference(key: string) {
-  try { return localStorage.getItem(`astral.${key}`) === 'true'; } catch { return false; }
+function readPreference(key: string, fallback = false) {
+  try { const value = localStorage.getItem(`astral.${key}`); return value === null ? fallback : value === 'true'; } catch { return fallback; }
 }
 
 function IconButton({ label, children, active, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string; children: ReactNode; active?: boolean }) {
@@ -33,7 +34,7 @@ function Modal({ title, eyebrow, onClose, children, wide = false }: { title: str
   </dialog>;
 }
 
-function Paytable({ bet, initialTab }: { bet: number; initialTab: 'symbols' | 'lines' }) {
+function Paytable({ bet, denomination, initialTab }: { bet: number; denomination: number; initialTab: 'symbols' | 'lines' }) {
   const [tab, setTab] = useState(initialTab);
   return <>
     <div className="tabs" role="tablist" aria-label="Paytable views">
@@ -41,15 +42,18 @@ function Paytable({ bet, initialTab }: { bet: number; initialTab: 'symbols' | 'l
       <button role="tab" aria-selected={tab === 'lines'} onClick={() => setTab('lines')}>10 paylines</button>
     </div>
     {tab === 'symbols' ? <>
-      <div className="table-caption"><span>Total bet <strong>{format(bet)}</strong></span><span>Payouts in credits</span></div>
+      <div className="table-caption"><span>{bet} credits × {money(denomination)} <strong>{money(bet * denomination)}</strong></span><span>Payouts in virtual dollars</span></div>
       <table className="pay-table"><thead><tr><th>Symbol</th><th>3</th><th>4</th><th>5</th></tr></thead><tbody>
         {[...SYMBOLS].filter(symbol => symbol.id !== 'moon').reverse().map(symbol => <tr key={symbol.id}>
           <td><ZodiacSymbol id={symbol.id} small label={false} /><span>{symbol.name}{symbol.id === 'sun' && <small>WILD</small>}</span></td>
-          {symbol.pays.map(payout => <td key={payout}>{format(payout * bet / 10)}</td>)}
+          {symbol.pays.map(payout => <td key={payout}>{money(payout * bet * denomination / 10)}</td>)}
         </tr>)}
       </tbody></table>
-      <div className="moon-rule"><ZodiacSymbol id="moon" small label={false} /><div><h3>Moonlight free spins</h3><p>3 moons: 5 spins · 4 moons: 8 spins · 5+ moons: 12 spins</p></div></div>
-      <p className="rules-copy">Matches pay from the leftmost reel on an active payline. The Sun substitutes for every symbol except the Moon. Only the highest win on each line pays; wins across lines are added. Moons count anywhere and can award more free spins during a bonus. Free spins keep the triggering bet.</p>
+      <div className="moon-rule"><ZodiacSymbol id="moon" small label={false} /><div><h3>Celestial pick + free spins</h3><p>3 moons: 5 spins · 4 moons: 8 spins · 5+ moons: 12 spins</p></div></div>
+      <div className="bonus-odds">{Object.entries(TIERS).map(([id, tier]) => <div key={id}><strong>{tier.name}</strong><span>{tier.multiplier}× total bet</span><small>{id === 'mini' ? '6' : id === 'minor' ? '4' : '1'} of 12 signs</small></div>)}</div>
+      <p className="rules-copy">Every Moon trigger also awards one celestial pick. Six Mini, four Minor, one Major, and one Grand are shuffled behind the 12 signs before your choice; every sign has identical odds. Bonuses can retrigger on free spins. The triggering credits and denomination stay locked throughout free spins.</p>
+      <p className="rules-copy">Matches pay from the leftmost reel. The Sun substitutes for every sign, but not the Moon. Only the highest win per line pays; separate lines add together. All signs have equal reel odds and payouts.</p>
+      <div className="rtp-note"><strong>98.00% theoretical RTP · 2.00% house edge</strong><p>Includes line wins, free spins, retriggers, and celestial picks. Applies to every wager and denomination over long-run play, not to each session.</p></div>
     </> : <>
       <div className="payline-grid">{PAYLINES.map((rows, i) => <div className="payline-example" key={i}><span>{String(i + 1).padStart(2, '0')}</span><svg viewBox="0 0 150 90" aria-label={`Payline ${i + 1}`}>
         {Array.from({ length: 15 }, (_, j) => <rect key={j} x={(j % 5) * 30 + 2} y={Math.floor(j / 5) * 30 + 2} width="26" height="26" rx="2" />)}
@@ -62,9 +66,9 @@ function Paytable({ bet, initialTab }: { bet: number; initialTab: 'symbols' | 'l
 
 function HistoryPanel({ records }: { records: SpinRecord[] }) {
   return records.length ? <div className="history-list"><div className="history-labels"><span>Spin / bet</span><span>Result</span></div>{records.map((record, i) => <div className="history-row" key={`${record.id}-${i}`}>
-    <div className={`history-icon ${record.payout ? 'paid' : ''}`}>{record.payout ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}</div>
-    <div className="history-detail"><strong>{record.free ? 'Free spin' : `${format(record.bet)} credit bet`}</strong><span>{new Date(record.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{record.awardedSpins > 0 && ` · +${record.awardedSpins} free spins`}</span></div>
-    <div className={`history-amount ${record.payout ? 'paid' : ''}`}><strong>{record.payout ? `+${format(record.payout)}` : 'No win'}</strong><span>{record.wins.length ? `${record.wins.length} winning ${record.wins.length === 1 ? 'line' : 'lines'}` : '—'}</span></div>
+    <div className={`history-icon ${totalWin(record) ? 'paid' : ''}`}>{totalWin(record) ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}</div>
+    <div className="history-detail"><strong>{record.free ? 'Free spin' : `${money(record.bet * record.denomination)} bet`}</strong><span>{record.bet} credits × {money(record.denomination)} · {new Date(record.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><span>{record.bonus ? `${record.bonus.sign} · ${TIERS[record.bonus.tier].name} bonus` : ''}{record.awardedSpins > 0 && ` · +${record.awardedSpins} free spins`}</span></div>
+    <div className={`history-amount ${totalWin(record) ? 'paid' : ''}`}><strong>{totalWin(record) ? `+${money(totalWin(record) * record.denomination)}` : 'No win'}</strong><span>{record.wins.length ? `${record.wins.length} winning ${record.wins.length === 1 ? 'line' : 'lines'}` : '—'}</span></div>
   </div>)}<p className="history-footnote">Your latest 30 spins · Payouts shown before the bet</p></div> : <div className="empty-history"><Sparkles size={38} /><h3>A story yet to be written.</h3><p>No spins in your orbit just yet.</p></div>;
 }
 
@@ -79,7 +83,7 @@ export default function App() {
   const [result, setResult] = useState<SpinRecord | null>(() => session.history[0] ?? null);
   const [panel, setPanel] = useState<Panel>(null);
   const [payTab, setPayTab] = useState<'symbols' | 'lines'>('symbols');
-  const [sound, setSound] = useState(() => readPreference('sound'));
+  const [sound, setSound] = useState(() => readPreference('sound', true));
   const soundRef = useRef(sound);
   soundRef.current = sound;
   const [turbo, setTurbo] = useState(() => readPreference('turbo'));
@@ -90,9 +94,9 @@ export default function App() {
   const gameRef = useRef<HTMLElement>(null);
   const autoRef = useRef<HTMLDivElement>(null);
   const effectiveBet = session.freeSpins > 0 ? session.bonusBet : session.bet;
-  const betIndex = BETS.indexOf(session.bet as typeof BETS[number]);
-  const canSpin = session.freeSpins > 0 || session.balance >= session.bet;
-  const locked = spinning || autoRemaining > 0;
+  const effectiveDenomination = session.freeSpins > 0 ? session.bonusDenomination : session.denomination;
+  const canSpin = session.freeSpins > 0 || session.balance >= session.bet * session.denomination;
+  const locked = spinning || autoRemaining > 0 || !!session.bonus;
 
   const persist = useCallback((next: Session) => {
     sessionRef.current = next;
@@ -100,8 +104,13 @@ export default function App() {
     catch { setStorageError(true); }
   }, []);
 
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
   useEffect(() => {
+    const quiet = () => { if (document.hidden) stopReels(); };
+    document.addEventListener('visibilitychange', quiet);
+    return () => { timers.current.forEach(clearTimeout); stopReels(); document.removeEventListener('visibilitychange', quiet); };
+  }, []);
+  useEffect(() => {
+    setAudioEnabled(sound);
     try { localStorage.setItem('astral.sound', String(sound)); localStorage.setItem('astral.turbo', String(turbo)); }
     catch { setStorageError(true); }
   }, [sound, turbo]);
@@ -114,7 +123,8 @@ export default function App() {
   const spin = useCallback(() => {
     if (busy.current) return;
     const current = sessionRef.current;
-    if (!current.freeSpins && current.balance < current.bet) { setAutoRemaining(0); setPanel('wallet'); return; }
+    if (current.bonus) return;
+    if (!current.freeSpins && current.balance < current.bet * current.denomination) { setAutoRemaining(0); setPanel('wallet'); return; }
     let settled: ReturnType<typeof settleSpin>;
     try { settled = settleSpin(current, drawBoard()); }
     catch { setError('The spin could not start. Your credits are unchanged.'); setAutoRemaining(0); return; }
@@ -125,7 +135,7 @@ export default function App() {
     setMoving([true, true, true, true, true]);
     setResult(null);
     setAutoMenu(false);
-    setSession({ ...current, balance: current.balance - (record.free ? 0 : record.bet) });
+    setSession({ ...current, balance: current.balance - (record.free ? 0 : record.bet * record.denomination) });
     // Save the full settlement before animation so a reload cannot lose a payout.
     persist(next);
     playTone('spin', soundRef.current);
@@ -135,13 +145,15 @@ export default function App() {
       timers.current.push(setTimeout(() => {
         setBoard(previous => previous.map((column, index) => index === reel ? record.board[reel] : column));
         setMoving(previous => previous.map((value, index) => index === reel ? false : value));
-        playTone('stop', soundRef.current);
+        playTone('stop', soundRef.current, reel);
         if (reel === 4) {
+          stopReels();
           setSession(next);
           setResult(record);
           setSpinning(false);
           busy.current = false;
-          setAutoRemaining(remaining => Math.max(0, remaining - 1));
+          setAutoRemaining(remaining => next.bonus ? 0 : Math.max(0, remaining - 1));
+          if (next.bonus) setPanel(null);
           if (record.awardedSpins || record.payout) playTone(record.awardedSpins ? 'bonus' : 'win', soundRef.current);
         }
       }, (quick ? 150 : 750) + reel * (quick ? 75 : 200)));
@@ -149,27 +161,40 @@ export default function App() {
   }, [persist, turbo]);
 
   useEffect(() => {
-    if (!autoRemaining || spinning || panel) return;
+    if (!autoRemaining || spinning || panel || session.bonus) return;
     const timeout = setTimeout(spin, turbo ? 350 : 900);
     return () => clearTimeout(timeout);
-  }, [autoRemaining, spinning, spin, turbo, panel]);
+  }, [autoRemaining, spinning, spin, turbo, panel, session.bonus]);
 
   useEffect(() => {
     const keyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
       if (event.code === 'Escape') setAutoMenu(false);
-      if (event.code === 'Space' && !event.repeat && !panel && !autoMenu && !autoRemaining &&
+      if (event.code === 'Space' && !event.repeat && !panel && !session.bonus && !autoMenu && !autoRemaining &&
           !['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'A'].includes(target.tagName) && !target.isContentEditable) {
         event.preventDefault(); spin();
       }
     };
     document.addEventListener('keydown', keyDown);
     return () => document.removeEventListener('keydown', keyDown);
-  }, [spin, panel, autoMenu, autoRemaining]);
+  }, [spin, panel, autoMenu, autoRemaining, session.bonus]);
 
-  function changeBet(index: number) {
-    if (locked || session.freeSpins || index < 0 || index >= BETS.length) return;
-    const next = { ...sessionRef.current, bet: BETS[index] };
+  function changeWager(field: 'bet' | 'denomination', value: number) {
+    const allowed: readonly number[] = field === 'bet' ? BETS : DENOMINATIONS;
+    if (locked || session.freeSpins || !allowed.includes(value)) return;
+    const next = { ...sessionRef.current, [field]: value };
+    persist(next); setSession(next);
+    playTone('credit', soundRef.current);
+  }
+  function selectBonus(sign: ZodiacId) {
+    const current = sessionRef.current;
+    if (!current.bonus || current.bonus.selectedSign) return;
+    const next = chooseBonus(current, sign);
+    persist(next); setSession(next); setResult(next.history[0]);
+    playTone(next.history[0]?.bonus?.tier === 'grand' ? 'grand' : 'bonus', soundRef.current);
+  }
+  function finishBonus() {
+    const next = collectBonus(sessionRef.current);
     persist(next); setSession(next);
   }
   function openPanel(value: Panel, tab: 'symbols' | 'lines' = 'symbols') {
@@ -177,13 +202,15 @@ export default function App() {
   }
   function refill() {
     if (busy.current) return;
-    const next = { ...sessionRef.current, balance: Math.max(10000, sessionRef.current.balance) };
+    const next = { ...sessionRef.current, balance: Math.max(REFILL_CENTS, sessionRef.current.balance) };
     persist(next); setSession(next); setPanel(null); setError('');
+    playTone('credit', soundRef.current);
   }
   function startAuto(count: number) { setAutoMenu(false); setAutoRemaining(count); spin(); }
   const winningCells = new Set(result?.wins.flatMap(win => PAYLINES[win.line].slice(0, win.count).map((row, reel) => `${reel}-${row}`)));
-  const lastWin = result?.payout ?? 0;
-  const bestWin = Math.max(0, ...session.history.map(record => record.payout));
+  const lastWin = totalWin(result);
+  const lastWinCents = lastWin * (result?.denomination ?? effectiveDenomination);
+  const bestWin = Math.max(0, ...session.history.map(record => totalWin(record) * record.denomination));
 
   return <div className="app-shell">
     <div className="cosmos" aria-hidden="true"><CelestialWheel className="background-wheel" />
@@ -207,7 +234,7 @@ export default function App() {
         <div className="machine-topline"><span className="active-lines"><i />10 ACTIVE PAYLINES</span><div className="jackpot-label"><Sparkles size={13} /><span>WRITTEN IN THE STARS</span><Sparkles size={13} /></div><button className="max-win" onClick={() => openPanel('paytable')}>UP TO <strong>1,000×</strong><Info size={13} /></button></div>
         <div className="cabinet">
           <span className="corner corner-tl" aria-hidden="true" /><span className="corner corner-tr" aria-hidden="true" /><span className="corner corner-bl" aria-hidden="true" /><span className="corner corner-br" aria-hidden="true" />
-          <div className="bonus-strip"><span className="bonus-name"><Moon size={15} />MOONLIGHT BONUS</span><div className="bonus-condition">{session.freeSpins ? <><Sparkles size={14} /><strong>{session.freeSpins} FREE {session.freeSpins === 1 ? 'SPIN' : 'SPINS'}</strong><span>IN YOUR ORBIT</span></> : <><span className="mini-moons"><Moon /><Moon /><Moon /></span><span>3 MOONS UNLOCK FREE SPINS</span></>}</div></div>
+          <div className="bonus-strip"><span className="bonus-name"><Moon size={15} />CELESTIAL BONUS</span><div className="bonus-condition">{session.freeSpins ? <><Sparkles size={14} /><strong>{session.freeSpins} FREE {session.freeSpins === 1 ? 'SPIN' : 'SPINS'}</strong><span>IN YOUR ORBIT</span></> : <><span className="mini-moons"><Moon /><Moon /><Moon /></span><span>3+ MOONS: SIGN PICK + FREE SPINS</span></>}</div></div>
           <div className="reels-area">
             <div className="line-pointer left" aria-hidden="true">1<span /></div>
             <div className="reels" role="img" aria-label={spinning ? 'The five reels are spinning' : `Reels, top to bottom: ${board.map(column => column.join(', ')).join('; ')}`} aria-busy={spinning}>
@@ -225,15 +252,21 @@ export default function App() {
           </div>
           <div className={`result-bar ${lastWin ? 'has-win' : ''}`} role="status" aria-live="polite" aria-atomic="true">
             <span className="result-decoration" aria-hidden="true">✧</span>
-            {error ? <span>{error}</span> : spinning ? <span>The stars are in motion<span className="ellipsis">...</span></span> : result?.awardedSpins ? <span><strong>Moonlight magic.</strong> +{result.awardedSpins} free spins{lastWin ? ` + ${format(lastWin)} credits` : ''}</span> : lastWin ? <span><strong>{lastWin >= effectiveBet * 10 ? 'A cosmic win!' : 'The stars align.'}</strong> +{format(lastWin)} credits</span> : <span>{result ? 'A new constellation awaits.' : 'Your next chapter is in the stars.'}</span>}
+            {error ? <span>{error}</span> : spinning ? <span>The stars are in motion<span className="ellipsis">...</span></span> : result?.bonus ? <span><strong>{TIERS[result.bonus.tier].name} constellation!</strong> +{money(lastWinCents)}</span> : result?.awardedSpins ? <span><strong>Celestial alignment.</strong> +{result.awardedSpins} free spins</span> : lastWin ? <span><strong>{lastWin >= (result?.bet ?? effectiveBet) * 10 ? 'A cosmic win!' : 'The stars align.'}</strong> +{money(lastWinCents)}</span> : <span>{result ? 'A new constellation awaits.' : 'Your next chapter is in the stars.'}</span>}
             <span className="result-decoration" aria-hidden="true">✧</span>
           </div>
         </div>
 
+        <div className="wager-settings">
+          <label>BET CREDITS<select aria-label="Bet credits" value={effectiveBet} disabled={locked || !!session.freeSpins} onChange={event => changeWager('bet', Number(event.target.value))}>{!BETS.includes(effectiveBet as typeof BETS[number]) && <option value={effectiveBet}>{effectiveBet}</option>}{BETS.map(bet => <option key={bet} value={bet}>{bet}</option>)}</select></label>
+          <span className="wager-times">×</span>
+          <label>DENOMINATION<select aria-label="Denomination" value={effectiveDenomination} disabled={locked || !!session.freeSpins} onChange={event => changeWager('denomination', Number(event.target.value))}>{DENOMINATIONS.map(denom => <option key={denom} value={denom}>{money(denom)}</option>)}</select></label>
+          <span className="wager-lock">{session.freeSpins ? 'BONUS WAGER LOCKED' : '98.00% THEORETICAL RTP'}</span>
+        </div>
         <div className="control-deck">
-          <div className="balance-control"><span className="control-label">BALANCE</span><div className="balance-value"><Coins size={20} /><strong data-testid="balance" title={`${format(session.balance)} credits`} aria-label={`${format(session.balance)} credits`}>{formatBalance(session.balance)}</strong><IconButton label="Refill virtual credits" disabled={spinning} onClick={() => openPanel('wallet')}><Plus size={14} /></IconButton></div><span className="control-note">virtual credits</span></div>
-          <div className="bet-control"><span className="control-label">TOTAL BET</span><div className="bet-stepper"><IconButton label="Decrease bet" disabled={locked || !!session.freeSpins || betIndex === 0} onClick={() => changeBet(betIndex - 1)}><Minus size={16} /></IconButton><strong data-testid="bet">{format(effectiveBet)}</strong><IconButton label="Increase bet" disabled={locked || !!session.freeSpins || betIndex === BETS.length - 1} onClick={() => changeBet(betIndex + 1)}><Plus size={16} /></IconButton></div><button className="max-bet" disabled={locked || !!session.freeSpins || betIndex === BETS.length - 1} onClick={() => changeBet(BETS.length - 1)}>MAX BET</button></div>
-          <div className={`win-control ${lastWin ? 'has-win' : ''}`}><span className="control-label">LAST WIN</span><strong data-testid="last-win">{format(lastWin)}</strong><span className="control-note">{result?.wins.length ? `${result.wins.length} winning ${result.wins.length === 1 ? 'line' : 'lines'}` : 'the cosmos is listening'}</span></div>
+          <div className="balance-control"><span className="control-label">VIRTUAL BALANCE</span><div className="balance-value"><Coins size={20} /><strong data-testid="balance" title={money(session.balance)} aria-label={money(session.balance)}>{compactMoney(session.balance)}</strong><IconButton label="Refill virtual credits" disabled={spinning} onClick={() => openPanel('wallet')}><Plus size={14} /></IconButton></div><span className="control-note">{format(Math.floor(session.balance / effectiveDenomination))} credits</span></div>
+          <div className="bet-control"><span className="control-label">TOTAL BET</span><div className="bet-stepper"><strong data-testid="bet">{money(effectiveBet * effectiveDenomination)}</strong></div><span className="control-note">{effectiveBet} credits × {money(effectiveDenomination)}</span></div>
+          <div className={`win-control ${lastWin ? 'has-win' : ''}`}><span className="control-label">LAST WIN</span><strong data-testid="last-win" title={money(lastWinCents)}>{compactMoney(lastWinCents)}</strong><span className="control-note">{lastWin ? `${format(lastWin)} credits` : 'the cosmos is listening'}</span></div>
           <div className="spin-controls"><button className={`spin-button ${spinning ? 'is-spinning' : ''}`} disabled={spinning || autoRemaining > 0} onClick={spin} aria-label={spinning ? 'Spinning' : session.freeSpins ? 'Free spin' : canSpin ? 'Spin' : 'Refill to spin'}><RotateCw size={26} strokeWidth={1.7} /><span>{spinning ? 'SPINNING' : session.freeSpins ? 'FREE SPIN' : canSpin ? 'SPIN' : 'REFILL'}</span><span className="spin-gem" aria-hidden="true">✦</span></button>
             <div className="auto-control" ref={autoRef}>{autoRemaining > 0 ? <button className="auto-button running" onClick={() => setAutoRemaining(0)} aria-label="Stop autoplay"><Square size={11} fill="currentColor" />STOP AUTO <span>{autoRemaining}</span></button> : <button className="auto-button" disabled={spinning || !canSpin} aria-expanded={autoMenu} aria-haspopup="menu" onClick={() => setAutoMenu(!autoMenu)}><RotateCw size={12} />AUTO SPIN</button>}
               {autoMenu && <div className="auto-menu" role="menu" aria-label="Autoplay count"><span>AUTO SPINS</span>{[10, 25, 50].map(count => <button key={count} role="menuitem" onClick={() => startAuto(count)}>{count} spins<ChevronRight size={14} /></button>)}</div>}
@@ -246,19 +279,20 @@ export default function App() {
       <section className="celestial-notes" aria-label="Celestial rewards">
         <div><span className="note-icon"><ZodiacSymbol id="sun" label={false} small /></span><div><h2>A little sunshine</h2><p>SUN WILD · EVERY SIGN HAS A CHANCE</p></div></div>
         <span className="notes-divider" />
-        <div><span className="note-icon"><ZodiacSymbol id="moon" label={false} small /></span><div><h2>Meet your moonlight</h2><p>3+ MOONS · UP TO 12 FREE SPINS</p></div></div>
+        <div><span className="note-icon"><ZodiacSymbol id="moon" label={false} small /></span><div><h2>A celestial calling</h2><p>MINI · MINOR · MAJOR · GRAND</p></div></div>
         <span className="notes-divider" />
-        <div><span className="note-icon"><Sparkles size={29} strokeWidth={1} /></span><div><h2>Your brightest moment</h2><p>{bestWin ? `${format(bestWin)} CREDITS · BEST OF YOUR LAST 30 SPINS` : 'YOUR BIGGEST WIN IS STILL TO COME'}</p></div></div>
+        <div><span className="note-icon"><Sparkles size={29} strokeWidth={1} /></span><div><h2>Your brightest moment</h2><p>{bestWin ? `${money(bestWin)} · BEST OF YOUR LAST 30 SPINS` : 'YOUR BIGGEST WIN IS STILL TO COME'}</p></div></div>
       </section>
     </main>
 
     <footer className="site-footer"><span><Sparkles size={12} /> ASTRAL FORTUNE</span><p>Made of stardust. Played for fun. <span>No real money. No cash prizes.</span></p><button onClick={() => openPanel('about')}>{storageError ? 'Session not saved' : 'Play for the moment'}<ArrowUpRight size={13} /></button></footer>
 
     {panel && <Modal title={panel === 'paytable' ? 'The stars, decoded.' : panel === 'history' ? 'Your cosmic journey.' : panel === 'wallet' ? 'A fresh constellation.' : 'Welcome to Astral.'} eyebrow={panel === 'paytable' ? 'PAYOUTS & PAYLINES' : panel === 'history' ? 'SPIN HISTORY' : panel === 'wallet' ? 'VIRTUAL CREDIT WALLET' : 'ASTRAL FORTUNE'} onClose={() => setPanel(null)} wide={panel === 'paytable'}>
-      {panel === 'paytable' && <Paytable bet={effectiveBet} initialTab={payTab} />}
+      {panel === 'paytable' && <Paytable bet={effectiveBet} denomination={effectiveDenomination} initialTab={payTab} />}
       {panel === 'history' && <HistoryPanel records={session.history} />}
-      {panel === 'wallet' && <div className="wallet-panel"><Coins size={38} strokeWidth={1.2} /><span>YOUR BALANCE</span><strong>{format(session.balance)}</strong><p>Virtual credits, real cosmic energy. Refill your balance to 10,000 credits, on the house.</p><button className="primary-button" onClick={refill} disabled={spinning || session.balance >= 10000}>{session.balance >= 10000 ? <><Check size={18} />Your wallet is full</> : <><Plus size={18} />Refill to 10,000</>}</button><small>Always free. No purchases or cash value.</small></div>}
-      {panel === 'about' && <div className="about-panel"><CelestialWheel /><p>A little escape to the celestial side.</p><p>Astral Fortune is a virtual slot game. Credits are free, have no monetary value, and cannot be purchased, transferred, or redeemed. Each spin is random; previous results and zodiac signs do not change the odds.</p><p>Your balance and the latest 30 spins are saved in this browser when local storage is available. Autoplay stops after your selected number of spins, when you open a panel, or when you stop it.</p><button className="primary-button" onClick={() => setPanel(null)}>Back to the stars<Sparkles size={17} /></button></div>}
+      {panel === 'wallet' && <div className="wallet-panel"><Coins size={38} strokeWidth={1.2} /><span>YOUR VIRTUAL BALANCE</span><strong>{money(session.balance)}</strong><p>{format(Math.floor(session.balance / effectiveDenomination))} credits at {money(effectiveDenomination)} each. Denomination changes preserve the dollar balance.</p><button className="primary-button" onClick={refill} disabled={spinning || session.balance >= REFILL_CENTS}>{session.balance >= REFILL_CENTS ? <><Check size={18} />Your wallet is full</> : <><Plus size={18} />Refill to $10,000</>}</button><small>Demo dollars only. No purchases or cash value.</small></div>}
+      {panel === 'about' && <div className="about-panel"><CelestialWheel /><p>A little escape to the celestial side.</p><p>All 12 zodiac signs share equal odds. Three or more Moons unlock a celestial pick and free spins. The hidden Mini, Minor, Major, and Grand rewards shuffle before each pick. Free spins retain the triggering credits and denomination.</p><p>Theoretical RTP is 98.00%, including all bonuses and retriggers: a 2.00% house edge over long-run play. It does not guarantee a return for any individual spin or session.</p><p>Dollar amounts are virtual. Credits cannot be purchased, transferred, or redeemed. Your wallet, bonus choice, and latest 30 spins are saved in this browser. Autoplay stops at its limit, on a bonus, when you open a panel, or when you stop it.</p><button className="primary-button" onClick={() => setPanel(null)}>Back to the stars<Sparkles size={17} /></button></div>}
     </Modal>}
+    {session.bonus && !spinning && <CelestialBonus bonus={session.bonus} freeSpins={session.freeSpins} sound={sound} onSound={() => setSound(!sound)} onChoose={selectBonus} onCollect={finishBonus} />}
   </div>;
 }
